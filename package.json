@@ -1,0 +1,28 @@
+{
+  "name": "mfd-talent-acquisition-tool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MFD Talent Acquisition Tool — JD-CV match analysis, ATS-optimized CV generation, and candidate sourcing",
+  "scripts": {
+    "build": "pnpm --filter @mfd/shared build && pnpm --filter @mfd/api build && pnpm --filter @mfd/web build",
+    "dev:api": "pnpm --filter @mfd/api start:dev",
+    "dev:web": "pnpm --filter @mfd/web dev",
+    "typecheck": "pnpm -r typecheck",
+    "prisma:generate": "pnpm --filter @mfd/api prisma:generate",
+    "prisma:migrate": "pnpm --filter @mfd/api prisma:migrate",
+    "seed": "pnpm --filter @mfd/api seed"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild",
+      "sharp"
+    ]
+  }
+}

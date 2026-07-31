@@ -1,0 +1,364 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  RECRUITER
+  VIEWER
+}
+
+enum PipelineStage {
+  SOURCED
+  CONTACTED
+  INTERESTED
+  INTERNAL_INTERVIEW_DONE
+  SENT_TO_CLIENT
+  REJECTED
+}
+
+enum CandidateSource {
+  MANUAL
+  BULK_UPLOAD
+  NAUKRI
+}
+
+enum ConsentStatus {
+  PENDING
+  GRANTED
+  REVOKED
+}
+
+enum CvVersionStatus {
+  DRAFT
+  EDITED
+  EXPORTED
+}
+
+enum SkillMatchTier {
+  EXPLICIT
+  TERMINOLOGY
+  INFERRED
+  UNVERIFIED_POSSIBLE
+  ABSENT
+}
+
+enum VerifiedSkillStatus {
+  PROPOSED
+  ACCEPTED
+  REJECTED
+  VERIFIED
+}
+
+enum SourcingJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum SourcingItemStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String
+  role         UserRole @default(RECRUITER)
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  jds            Jd[]
+  candidates     Candidate[]
+  analyses       MatchAnalysis[]
+  cvVersions     CvVersion[]
+  auditLogs      AuditLog[]
+  verifiedSkills VerifiedSkill[] @relation("VerifiedBy")
+
+  @@map("users")
+}
+
+model Jd {
+  id             String    @id @default(uuid())
+  title          String
+  clientName     String    @default("NTT DATA")
+  rawText        String
+  /// ParsedJd JSON (packages/shared ParsedJdSchema)
+  parsedCriteria Json?
+  fileKey        String?
+  fileName       String?
+  createdById    String
+  createdBy      User      @relation(fields: [createdById], references: [id])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  analyses       MatchAnalysis[]
+  cvVersions     CvVersion[]
+  interviewPreps InterviewPrep[]
+  pipelineEntries PipelineEntry[]
+  sourcingJobs   SourcingJob[]
+  verifiedSkills VerifiedSkill[]
+
+  @@map("jds")
+}
+
+model Candidate {
+  id        String          @id @default(uuid())
+  fullName  String
+  /// AES-256-GCM encrypted, format "enc:v1:<iv>:<tag>:<ciphertext>"
+  email     String?
+  /// sha256(lowercased email) for dedupe/lookup without decryption
+  emailHash String?
+  /// AES-256-GCM encrypted
+  phone     String?
+  currentLocation      String?
+  currentTitle         String?
+  noticePeriod         String?
+  totalYearsExperience Float?
+  source               CandidateSource @default(MANUAL)
+  consentStatus        ConsentStatus   @default(PENDING)
+  consentAt            DateTime?
+  consentNote          String?
+  createdById          String
+  createdBy            User            @relation(fields: [createdById], references: [id])
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  deletedAt            DateTime?
+
+  cvDocuments     CvDocument[]
+  analyses        MatchAnalysis[]
+  cvVersions      CvVersion[]
+  interviewPreps  InterviewPrep[]
+  pipelineEntries PipelineEntry[]
+  verifiedSkills  VerifiedSkill[]
+
+  @@index([emailHash])
+  @@map("candidates")
+}
+
+model CvDocument {
+  id          String    @id @default(uuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  fileKey     String
+  fileName    String
+  mimeType    String
+  /// Raw text extracted from the document
+  parsedText  String
+  /// ParsedCv JSON (packages/shared ParsedCvSchema)
+  parsedCv    Json?
+  /// Extraction metadata: page count, layout hints for ATS checks, etc.
+  parseMeta   Json?
+  ocrUsed     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  analyses MatchAnalysis[]
+
+  @@map("cv_documents")
+}
+
+model MatchAnalysis {
+  id            String      @id @default(uuid())
+  jdId          String
+  jd            Jd          @relation(fields: [jdId], references: [id], onDelete: Cascade)
+  candidateId   String
+  candidate     Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  cvDocumentId  String?
+  cvDocument    CvDocument? @relation(fields: [cvDocumentId], references: [id], onDelete: SetNull)
+  cvVersionId   String?
+  cvVersion     CvVersion?  @relation(fields: [cvVersionId], references: [id], onDelete: SetNull)
+  totalScore    Int
+  /// MatchBreakdown JSON (packages/shared MatchBreakdownSchema)
+  breakdown     Json
+  engineVersion String
+  /// { jdParse: "v1", cvParse: "v1", semanticMatch: "v1", ... }
+  promptVersions Json
+  createdById   String
+  createdBy     User        @relation(fields: [createdById], references: [id])
+  createdAt     DateTime    @default(now())
+
+  @@index([jdId, candidateId])
+  @@map("match_analyses")
+}
+
+model CvVersion {
+  id              String          @id @default(uuid())
+  candidateId     String
+  candidate       Candidate       @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  jdId            String
+  jd              Jd              @relation(fields: [jdId], references: [id], onDelete: Cascade)
+  parentVersionId String?
+  parentVersion   CvVersion?      @relation("VersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  childVersions   CvVersion[]     @relation("VersionLineage")
+  versionNumber   Int
+  /// GeneratedCv JSON (packages/shared GeneratedCvSchema)
+  content         Json
+  /// CvChange[] JSON — what changed and why, with evidence
+  changeLog       Json
+  /// string[] — things the generator declined to change for integrity reasons
+  integrityNotes  Json?
+  targetScore     Int?
+  achievedScore   Int?
+  status          CvVersionStatus @default(DRAFT)
+  createdById     String
+  createdBy       User            @relation(fields: [createdById], references: [id])
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  analyses MatchAnalysis[]
+
+  @@unique([candidateId, jdId, versionNumber])
+  @@map("cv_versions")
+}
+
+model InterviewPrep {
+  id            String    @id @default(uuid())
+  jdId          String
+  jd            Jd        @relation(fields: [jdId], references: [id], onDelete: Cascade)
+  candidateId   String
+  candidate     Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  /// InterviewPrep JSON (packages/shared InterviewPrepSchema)
+  prep          Json
+  promptVersion String
+  createdById   String
+  createdAt     DateTime  @default(now())
+
+  @@map("interview_preps")
+}
+
+model VerifiedSkill {
+  id           String              @id @default(uuid())
+  candidateId  String
+  candidate    Candidate           @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  jdId         String?
+  jd           Jd?                 @relation(fields: [jdId], references: [id], onDelete: SetNull)
+  skill        String
+  tier         SkillMatchTier
+  status       VerifiedSkillStatus @default(PROPOSED)
+  /// For INFERRED: model rationale. For VERIFIED: recruiter-recorded evidence from the genuineness interview.
+  evidence     String?
+  verifiedById String?
+  verifiedBy   User?               @relation("VerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([candidateId, jdId])
+  @@map("verified_skills")
+}
+
+model PipelineEntry {
+  id          String        @id @default(uuid())
+  jdId        String
+  jd          Jd            @relation(fields: [jdId], references: [id], onDelete: Cascade)
+  candidateId String
+  candidate   Candidate     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  stage       PipelineStage @default(SOURCED)
+  notes       String?
+  latestScore Int?
+  updatedById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([jdId, candidateId])
+  @@map("pipeline_entries")
+}
+
+model SourcingJob {
+  id             String            @id @default(uuid())
+  jdId           String
+  jd             Jd                @relation(fields: [jdId], references: [id], onDelete: Cascade)
+  provider       String            @default("bulk_upload")
+  status         SourcingJobStatus @default(PENDING)
+  totalItems     Int               @default(0)
+  processedItems Int               @default(0)
+  failedItems    Int               @default(0)
+  error          String?
+  createdById    String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  items SourcingJobItem[]
+
+  @@map("sourcing_jobs")
+}
+
+model SourcingJobItem {
+  id          String             @id @default(uuid())
+  jobId       String
+  job         SourcingJob        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  fileName    String
+  fileKey     String?
+  status      SourcingItemStatus @default(PENDING)
+  error       String?
+  candidateId String?
+  analysisId  String?
+  totalScore  Int?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@map("sourcing_job_items")
+}
+
+model SourcingCredential {
+  id               String   @id @default(uuid())
+  /// e.g. "naukri_resdex"
+  provider         String   @unique
+  /// AES-256-GCM encrypted JSON payload of credentials
+  encryptedPayload String
+  updatedById      String?
+  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now())
+
+  @@map("sourcing_credentials")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String?
+  detail     Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+/// Content-hash cache for LLM calls — makes scoring deterministic and cheap on re-runs.
+model LlmCache {
+  id            String   @id @default(uuid())
+  cacheKey      String   @unique
+  promptName    String
+  promptVersion String
+  model         String
+  response      Json
+  createdAt     DateTime @default(now())
+
+  @@map("llm_cache")
+}
+
+/// Simple key-value app settings (e.g. scoring weight overrides), admin-managed.
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("app_settings")
+}
