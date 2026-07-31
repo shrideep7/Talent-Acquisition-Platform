@@ -52,6 +52,9 @@ importers:
       docx:
         specifier: ^8.5.0
         version: 8.6.0
+      express:
+        specifier: ^4.21.1
+        version: 4.22.1
       mammoth:
         specifier: ^1.8.0
         version: 1.12.0

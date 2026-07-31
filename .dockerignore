@@ -1,0 +1,37 @@
+# Dependencies (reinstalled inside the image)
+node_modules
+**/node_modules
+.pnpm-store
+
+# Build output (rebuilt inside the image)
+**/dist
+**/.next
+**/out
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# VCS / editor
+.git
+.gitignore
+.idea
+.vscode
+.claude
+
+# Secrets — never bake env files into images
+.env
+.env.*
+!.env.example
+
+# Local storage / uploads / logs
+storage
+uploads
+coverage
+*.log
+
+# Docker files themselves (not needed in the build context)
+docker-compose.yml
+**/Dockerfile
+.dockerignore
+
+# OS
+.DS_Store
