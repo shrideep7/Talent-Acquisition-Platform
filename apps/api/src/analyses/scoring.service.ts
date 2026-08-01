@@ -62,6 +62,7 @@ export class ScoringService implements IScoringService {
       promptName: 'semantic-match',
       schema: SemanticMatchSchema,
       schemaVersion: 'v1',
+      candidateId: input.candidateId,
       userContent: JSON.stringify({ jd: criteria, cv: input.parsedCv }),
     });
 

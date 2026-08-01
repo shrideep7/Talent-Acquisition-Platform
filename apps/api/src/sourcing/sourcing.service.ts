@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import type { SourcingJob, SourcingJobItem } from '@prisma/client';
@@ -32,6 +33,8 @@ export interface StartBulkJobOptions {
   jdId: string;
   files: BulkUploadFile[];
   userId: string;
+  /** DPDP consent flag captured at upload time, applied to every candidate. */
+  consent?: boolean;
 }
 
 /** One row of the ranked candidate list for a JD (latest analysis per candidate). */
@@ -69,7 +72,7 @@ interface PendingItem {
  * Phase 3 providers (Naukri Resdex) plug in via SourcingProvider.
  */
 @Injectable()
-export class SourcingService {
+export class SourcingService implements OnModuleInit {
   private readonly logger = new Logger(SourcingService.name);
 
   constructor(
@@ -79,6 +82,25 @@ export class SourcingService {
     private readonly candidatesService: CandidatesService,
     private readonly scoringService: ScoringService,
   ) {}
+
+  /**
+   * Jobs process in-memory buffers, so a server restart orphans any job that
+   * was RUNNING — mark them FAILED at boot instead of leaving clients polling
+   * a job that will never finish.
+   */
+  async onModuleInit(): Promise<void> {
+    const orphaned = await this.prisma.sourcingJob.updateMany({
+      where: { status: { in: ['PENDING', 'RUNNING'] } },
+      data: { status: 'FAILED', error: 'Interrupted by server restart — re-upload the files' },
+    });
+    if (orphaned.count > 0) {
+      await this.prisma.sourcingJobItem.updateMany({
+        where: { status: { in: ['PENDING', 'PROCESSING'] }, job: { status: 'FAILED' } },
+        data: { status: 'FAILED', error: 'Interrupted by server restart' },
+      });
+      this.logger.warn(`Marked ${orphaned.count} orphaned sourcing job(s) as FAILED at boot`);
+    }
+  }
 
   /**
    * Create the SourcingJob + item rows, kick off background processing
@@ -92,24 +114,27 @@ export class SourcingService {
 
     const jd = await this.getParsedJd(opts.jdId);
 
-    const job = await this.prisma.sourcingJob.create({
-      data: {
-        jdId: opts.jdId,
-        provider: 'bulk_upload',
-        status: 'RUNNING',
-        totalItems: opts.files.length,
-        createdById: opts.userId,
-      },
-    });
-
-    // Create items one-by-one so each DB row is reliably paired with its buffer.
-    const pending: PendingItem[] = [];
-    for (const file of opts.files) {
-      const item = await this.prisma.sourcingJobItem.create({
-        data: { jobId: job.id, fileName: file.originalname, status: 'PENDING' },
+    // Job + items are created atomically so a mid-creation failure can never
+    // leave a RUNNING job with no items for the client to poll forever.
+    const { job, pending } = await this.prisma.$transaction(async (tx) => {
+      const createdJob = await tx.sourcingJob.create({
+        data: {
+          jdId: opts.jdId,
+          provider: 'bulk_upload',
+          status: 'RUNNING',
+          totalItems: opts.files.length,
+          createdById: opts.userId,
+        },
       });
-      pending.push({ itemId: item.id, file });
-    }
+      const createdPending: PendingItem[] = [];
+      for (const file of opts.files) {
+        const item = await tx.sourcingJobItem.create({
+          data: { jobId: createdJob.id, fileName: file.originalname, status: 'PENDING' },
+        });
+        createdPending.push({ itemId: item.id, file });
+      }
+      return { job: createdJob, pending: createdPending };
+    });
 
     await this.audit.log({
       userId: opts.userId,
@@ -119,7 +144,7 @@ export class SourcingService {
       detail: { jdId: opts.jdId, provider: 'bulk_upload', totalItems: opts.files.length },
     });
 
-    void this.processJob(job.id, jd, pending, opts.userId).catch(async (err) => {
+    void this.processJob(job.id, jd, pending, opts.userId, opts.consent).catch(async (err) => {
       this.logger.error(
         `Sourcing job ${job.id} crashed: ${(err as Error).message}`,
         (err as Error).stack,
@@ -141,13 +166,14 @@ export class SourcingService {
     jd: JobJd,
     items: PendingItem[],
     userId: string,
+    consent?: boolean,
   ): Promise<void> {
     let cursor = 0;
     const worker = async (): Promise<void> => {
       for (;;) {
         const index = cursor++;
         if (index >= items.length) return;
-        await this.processItem(jobId, jd, items[index], userId);
+        await this.processItem(jobId, jd, items[index], userId, consent);
       }
     };
     const workers = Array.from({ length: Math.min(BULK_CONCURRENCY, items.length) }, () =>
@@ -188,6 +214,7 @@ export class SourcingService {
     jd: JobJd,
     item: PendingItem,
     userId: string,
+    consent?: boolean,
   ): Promise<void> {
     await this.prisma.sourcingJobItem.update({
       where: { id: item.itemId },
@@ -201,6 +228,7 @@ export class SourcingService {
         mimeType: item.file.mimetype,
         userId,
         source: 'BULK_UPLOAD',
+        consent,
       });
 
       const result = await this.scoringService.scoreCv({

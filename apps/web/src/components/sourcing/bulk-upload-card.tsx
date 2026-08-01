@@ -9,6 +9,8 @@ import type { SourcingJobDto } from '@mfd/shared';
 import { FileDrop } from '@/components/file-drop';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { api, ApiError } from '@/lib/api';
 
 function formatBytes(bytes: number): string {
@@ -26,6 +28,7 @@ export interface BulkUploadCardProps {
 export function BulkUploadCard({ jdId, onJobStarted }: BulkUploadCardProps) {
   const queryClient = useQueryClient();
   const [staged, setStaged] = React.useState<File[]>([]);
+  const [consent, setConsent] = React.useState(false);
 
   const addFiles = React.useCallback((files: File[]) => {
     setStaged((prev) => {
@@ -39,7 +42,12 @@ export function BulkUploadCard({ jdId, onJobStarted }: BulkUploadCardProps) {
   };
 
   const uploadMutation = useMutation({
-    mutationFn: () => api.upload<SourcingJobDto>('/sourcing/bulk-upload', { files: staged }, { jdId }),
+    mutationFn: () =>
+      api.upload<SourcingJobDto>(
+        '/sourcing/bulk-upload',
+        { files: staged },
+        { jdId, consent: String(consent) },
+      ),
     onSuccess: (job) => {
       toast.success(`Bulk analysis started for ${job.totalItems} CV${job.totalItems === 1 ? '' : 's'}`);
       setStaged([]);
@@ -89,6 +97,19 @@ export function BulkUploadCard({ jdId, onJobStarted }: BulkUploadCardProps) {
             ))}
           </ul>
         )}
+
+        <div className="flex items-start gap-2">
+          <Checkbox
+            id="bulk-consent"
+            checked={consent}
+            onCheckedChange={(v) => setConsent(v === true)}
+            disabled={uploadMutation.isPending}
+          />
+          <Label htmlFor="bulk-consent" className="text-sm font-normal leading-snug text-muted-foreground">
+            These candidates have consented to processing of their data for placement purposes
+            (DPDP). Leave unchecked to record consent individually later.
+          </Label>
+        </div>
 
         <div className="flex items-center gap-3">
           <Button

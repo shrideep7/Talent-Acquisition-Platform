@@ -106,12 +106,14 @@ export class CvVersionsService {
       beforeBreakdown = baseline.breakdown;
     }
 
-    // Recruiter-verified/accepted skills usable by the rewrite (JD-specific + global).
+    // Only recruiter-VERIFIED skills (evidence recorded in the genuineness
+    // interview) may be handed to the generator. ACCEPTED rows influence
+    // scoring but never introduce CV lines on their own.
     const verifiedRows = await this.prisma.verifiedSkill.findMany({
       where: {
         candidateId: input.candidateId,
         OR: [{ jdId: input.jdId }, { jdId: null }],
-        status: { in: ['VERIFIED', 'ACCEPTED'] },
+        status: 'VERIFIED',
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -122,6 +124,7 @@ export class CvVersionsService {
       schema: CvRewriteResultSchema,
       schemaVersion: 'v1',
       noCache: true,
+      candidateId: input.candidateId,
       userContent: JSON.stringify({
         jd: parsedJd,
         sourceCv,
@@ -133,27 +136,24 @@ export class CvVersionsService {
     const rewrite = ai.data;
 
     // Code-level integrity guardrail — never trust the prompt alone.
-    this.assertIntegrity(rewrite.cv, sourceCv);
+    const allowedSkills = this.buildAllowedSkillSet(
+      sourceCv,
+      verifiedRows.map((s) => s.skill),
+      beforeBreakdown,
+    );
+    this.assertIntegrity(rewrite.cv, sourceCv, allowedSkills, cvDocument.parsedText);
 
-    const agg = await this.prisma.cvVersion.aggregate({
-      where: { candidateId: input.candidateId, jdId: input.jdId },
-      _max: { versionNumber: true },
+    const version = await this.createVersionWithRetry({
+      candidateId: input.candidateId,
+      jdId: input.jdId,
+      sourceCvDocumentId: input.cvDocumentId,
+      content: rewrite.cv as unknown as object,
+      changeLog: rewrite.changes as unknown as object,
+      integrityNotes: rewrite.integrityNotes as unknown as object,
+      targetScore: input.targetScore,
+      createdById: user.id,
     });
-    const versionNumber = (agg._max.versionNumber ?? 0) + 1;
-
-    const version = await this.prisma.cvVersion.create({
-      data: {
-        candidateId: input.candidateId,
-        jdId: input.jdId,
-        versionNumber,
-        content: rewrite.cv as unknown as object,
-        changeLog: rewrite.changes as unknown as object,
-        integrityNotes: rewrite.integrityNotes as unknown as object,
-        targetScore: input.targetScore,
-        status: 'DRAFT',
-        createdById: user.id,
-      },
-    });
+    const versionNumber = version.versionNumber;
 
     const after = await this.scoreGeneratedCv({
       jd: jdInput,
@@ -211,13 +211,18 @@ export class CvVersionsService {
     }
     const parsedJd = jd.parsedCriteria as unknown as ParsedJd;
 
-    // Integrity re-check against the candidate's latest parsed source CV
-    // (assumption: the latest CvDocument is the version's source lineage).
-    const docs = await this.prisma.cvDocument.findMany({
-      where: { candidateId: version.candidateId },
-      orderBy: { createdAt: 'desc' },
-    });
-    const sourceDoc = docs.find((d) => d.parsedCv !== null);
+    // Integrity re-check against the exact document this version was
+    // generated from (falling back to the latest parsed CV for legacy rows).
+    let sourceDoc = version.sourceCvDocumentId
+      ? await this.prisma.cvDocument.findUnique({ where: { id: version.sourceCvDocumentId } })
+      : null;
+    if (!sourceDoc || !sourceDoc.parsedCv) {
+      const docs = await this.prisma.cvDocument.findMany({
+        where: { candidateId: version.candidateId },
+        orderBy: { createdAt: 'desc' },
+      });
+      sourceDoc = docs.find((d) => d.parsedCv !== null) ?? null;
+    }
     if (!sourceDoc || !sourceDoc.parsedCv) {
       throw new UnprocessableEntityException(
         'No parsed source CV exists for this candidate — cannot verify edit integrity',
@@ -225,7 +230,26 @@ export class CvVersionsService {
     }
     const sourceCv = sourceDoc.parsedCv as unknown as ParsedCv;
 
-    this.assertIntegrity(content, sourceCv);
+    // Skills previously in this version already passed integrity at
+    // generation time; recruiter-confirmed rows are also legitimate.
+    const confirmedRows = await this.prisma.verifiedSkill.findMany({
+      where: {
+        candidateId: version.candidateId,
+        OR: [{ jdId: version.jdId }, { jdId: null }],
+        status: { in: ['VERIFIED', 'ACCEPTED'] },
+      },
+    });
+    const allowedSkills = this.buildAllowedSkillSet(
+      sourceCv,
+      confirmedRows.map((s) => s.skill),
+      null,
+    );
+    const priorContent = version.content as unknown as GeneratedCv;
+    for (const group of priorContent.skills ?? []) {
+      for (const item of group.items) allowedSkills.add(item.trim().toLowerCase());
+    }
+
+    this.assertIntegrity(content, sourceCv, allowedSkills, sourceDoc.parsedText);
 
     const after = await this.scoreGeneratedCv({
       jd: { id: jd.id, rawText: jd.rawText, parsedCriteria: parsedJd },
@@ -236,10 +260,24 @@ export class CvVersionsService {
       cvVersionId: version.id,
     });
 
+    // Manual edits are recorded in the change log so every version's content
+    // trail stays honest — the AI change log alone no longer describes it.
+    const priorLog = (version.changeLog as unknown as CvChange[] | null) ?? [];
+    const manualEntry: CvChange = {
+      section: 'Manual edit',
+      changeType: 'rephrase',
+      before: null,
+      after: 'Recruiter edited the CV content in-app',
+      reason: 'Manual recruiter edit after generation',
+      evidence: `Edited by ${user.email} — see audit log entry CV_VERSION_EDITED`,
+      tier: null,
+    };
+
     const updated = await this.prisma.cvVersion.update({
       where: { id },
       data: {
         content: content as unknown as object,
+        changeLog: [...priorLog, manualEntry] as unknown as object,
         achievedScore: after.totalScore,
         status: 'EDITED',
       },
@@ -274,17 +312,152 @@ export class CvVersionsService {
   }
 
   /**
-   * Employment history, education, and certifications may never be invented
-   * or altered by the generator. Employer+title pairs, degree names, and
-   * certification names must all exist in the parsed source CV
-   * (case-insensitive, trimmed comparison).
+   * Create the version row, retrying on the unique(candidateId,jdId,
+   * versionNumber) constraint so concurrent generations never 500.
    */
-  private assertIntegrity(generated: GeneratedCv, source: ParsedCv): void {
-    const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase();
+  private async createVersionWithRetry(data: {
+    candidateId: string;
+    jdId: string;
+    sourceCvDocumentId: string;
+    content: object;
+    changeLog: object;
+    integrityNotes: object;
+    targetScore: number;
+    createdById: string;
+  }): Promise<CvVersion> {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const agg = await this.prisma.cvVersion.aggregate({
+        where: { candidateId: data.candidateId, jdId: data.jdId },
+        _max: { versionNumber: true },
+      });
+      const versionNumber = (agg._max.versionNumber ?? 0) + 1 + attempt;
+      try {
+        return await this.prisma.cvVersion.create({
+          data: { ...data, versionNumber, status: 'DRAFT' },
+        });
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code !== 'P2002') throw err;
+        this.logger.warn(`versionNumber collision for ${data.candidateId}/${data.jdId}, retrying`);
+      }
+    }
+    throw new UnprocessableEntityException('Could not allocate a version number — retry');
+  }
 
-    const sourceRoles = new Set(source.roles.map((r) => `${norm(r.employer)}|${norm(r.title)}`));
+  private static norm(s: string | null | undefined): string {
+    return (s ?? '').trim().toLowerCase();
+  }
+
+  /** Extract {month, year} from date strings like "Jan 2021", "01/2021", "2021". */
+  private static monthYear(s: string | null | undefined): { month: number | null; year: number | null } {
+    if (!s) return { month: null, year: null };
+    const text = s.trim().toLowerCase();
+    const yearMatch = /(19|20)\d{2}/.exec(text);
+    const year = yearMatch ? parseInt(yearMatch[0], 10) : null;
+    const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    let month: number | null = null;
+    for (let i = 0; i < months.length; i++) {
+      if (text.includes(months[i])) {
+        month = i + 1;
+        break;
+      }
+    }
+    if (month === null) {
+      const numeric = /(?:^|[^\d])(\d{1,2})[\/\-.](19|20)\d{2}/.exec(text);
+      if (numeric) {
+        const m = parseInt(numeric[1], 10);
+        if (m >= 1 && m <= 12) month = m;
+      }
+    }
+    return { month, year };
+  }
+
+  private static isPresent(s: string | null | undefined): boolean {
+    const t = CvVersionsService.norm(s);
+    return t === '' || t === 'present' || t === 'till date' || t === 'current';
+  }
+
+  /**
+   * A generated date is truthful when it denotes the same month/year as the
+   * source date (formats may differ). A date may not be invented where the
+   * source has none, dropped where the source has one, or shifted.
+   */
+  private static datesMatch(sourceDate: string | null, generatedDate: string | null, sourceIsCurrent: boolean): boolean {
+    const srcPresent = sourceIsCurrent || CvVersionsService.isPresent(sourceDate);
+    const genPresent = CvVersionsService.isPresent(generatedDate);
+    if (srcPresent && genPresent) return true;
+    if (!sourceDate) return !generatedDate || genPresent === srcPresent;
+    if (!generatedDate) return false;
+    const src = CvVersionsService.monthYear(sourceDate);
+    const gen = CvVersionsService.monthYear(generatedDate);
+    if (src.year !== null && gen.year !== null && src.year !== gen.year) return false;
+    if (src.month !== null && gen.month !== null && src.month !== gen.month) return false;
+    if (src.year !== null && gen.year === null) return false;
+    return true;
+  }
+
+  /** Case-insensitive equality-or-containment (min length 3 for containment). */
+  private static skillCovered(item: string, allowed: Set<string>): boolean {
+    const it = CvVersionsService.norm(item);
+    if (!it) return true;
+    if (allowed.has(it)) return true;
+    for (const a of allowed) {
+      if (a.length >= 3 && it.includes(a)) return true;
+      if (it.length >= 3 && a.includes(it)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Every skill the generator may state, from legitimate origins only:
+   * the source CV itself, recruiter-confirmed rows, and (for generation)
+   * skills the analysis judged EXPLICIT/TERMINOLOGY/INFERRED with evidence.
+   */
+  private buildAllowedSkillSet(
+    source: ParsedCv,
+    confirmedSkills: string[],
+    breakdown: MatchBreakdown | null,
+  ): Set<string> {
+    const allowed = new Set<string>();
+    const add = (s: string | null | undefined) => {
+      const n = CvVersionsService.norm(s);
+      if (n) allowed.add(n);
+    };
+    for (const s of source.skills) add(s.name);
+    for (const r of source.roles) for (const t of r.technologies) add(t);
+    for (const p of source.projects) for (const t of p.technologies) add(t);
+    for (const s of confirmedSkills) add(s);
+    if (breakdown) {
+      for (const d of breakdown.skills.details) {
+        if (d.tier === 'EXPLICIT' || d.tier === 'TERMINOLOGY' || d.tier === 'INFERRED') {
+          add(d.jdSkill);
+          add(d.cvTerm);
+        }
+      }
+    }
+    return allowed;
+  }
+
+  /**
+   * Employment history, dates, education, and certifications may never be
+   * invented or altered by the generator or by manual edits — and no skill
+   * may appear without a traceable origin (source CV, evidence-tiered
+   * analysis judgement, or recruiter verification).
+   */
+  private assertIntegrity(
+    generated: GeneratedCv,
+    source: ParsedCv,
+    allowedSkills: Set<string>,
+    sourceText: string,
+  ): void {
+    const norm = CvVersionsService.norm;
+
+    // Roles: employer+title must exist; dates must denote the same period.
     for (const entry of generated.experience) {
-      if (!sourceRoles.has(`${norm(entry.employer)}|${norm(entry.title)}`)) {
+      const matches = source.roles.filter(
+        (r) => norm(r.employer) === norm(entry.employer) && norm(r.title) === norm(entry.title),
+      );
+      if (matches.length === 0) {
         this.logger.warn(
           `Integrity check failed: role "${entry.title}" at "${entry.employer}" not in source CV`,
         );
@@ -292,26 +465,90 @@ export class CvVersionsService {
           'Generated CV altered employment history — regenerate',
         );
       }
+      const dateOk = matches.some(
+        (r) =>
+          CvVersionsService.datesMatch(r.startDate, entry.startDate, false) &&
+          CvVersionsService.datesMatch(r.endDate, entry.endDate, r.isCurrent),
+      );
+      if (!dateOk) {
+        this.logger.warn(
+          `Integrity check failed: dates for "${entry.title}" at "${entry.employer}" differ from source`,
+        );
+        throw new UnprocessableEntityException(
+          'Generated CV altered employment dates — regenerate',
+        );
+      }
     }
 
-    const sourceDegrees = new Set(source.education.map((e) => norm(e.degree)));
+    // Education: degree must exist; institution/year may not be invented or changed.
     for (const edu of generated.education) {
-      if (!sourceDegrees.has(norm(edu.degree))) {
+      const matches = source.education.filter((e) => norm(e.degree) === norm(edu.degree));
+      if (matches.length === 0) {
         this.logger.warn(`Integrity check failed: education "${edu.degree}" not in source CV`);
         throw new UnprocessableEntityException(
           'Generated CV added or altered education entries — regenerate',
         );
       }
+      const fieldsOk = matches.some(
+        (e) =>
+          (edu.institution === null || norm(e.institution) === norm(edu.institution)) &&
+          (edu.year === null || norm(e.year) === norm(edu.year)),
+      );
+      if (!fieldsOk) {
+        this.logger.warn(
+          `Integrity check failed: education details for "${edu.degree}" differ from source`,
+        );
+        throw new UnprocessableEntityException(
+          'Generated CV altered education details (institution/year) — regenerate',
+        );
+      }
     }
 
-    const sourceCerts = new Set(source.certifications.map((c) => norm(c.name)));
+    // Certifications: name must exist; issuer/year may not be invented or changed.
     for (const cert of generated.certifications) {
-      if (!sourceCerts.has(norm(cert.name))) {
+      const matches = source.certifications.filter((c) => norm(c.name) === norm(cert.name));
+      if (matches.length === 0) {
         this.logger.warn(`Integrity check failed: certification "${cert.name}" not in source CV`);
         throw new UnprocessableEntityException(
           'Generated CV added or altered certifications — regenerate',
         );
       }
+      const fieldsOk = matches.some(
+        (c) =>
+          (cert.issuer === null || norm(c.issuer) === norm(cert.issuer)) &&
+          (cert.year === null || norm(c.year) === norm(cert.year)),
+      );
+      if (!fieldsOk) {
+        this.logger.warn(
+          `Integrity check failed: certification details for "${cert.name}" differ from source`,
+        );
+        throw new UnprocessableEntityException(
+          'Generated CV altered certification details (issuer/year) — regenerate',
+        );
+      }
+    }
+
+    // Skills: every stated skill needs a traceable origin.
+    const sourceTextNorm = sourceText.toLowerCase();
+    const offenders: string[] = [];
+    for (const group of generated.skills) {
+      for (const item of group.items) {
+        const it = norm(item);
+        if (!it) continue;
+        if (CvVersionsService.skillCovered(item, allowedSkills)) continue;
+        // Fallback: the term (or its parenthetical parts) appears verbatim in the source CV.
+        const parts = [it, ...it.split(/[()\/,]+/).map((p) => p.trim()).filter((p) => p.length >= 3)];
+        if (parts.some((p) => p.length >= 3 && sourceTextNorm.includes(p))) continue;
+        offenders.push(item);
+      }
+    }
+    if (offenders.length > 0) {
+      this.logger.warn(`Integrity check failed: untraceable skills [${offenders.join(', ')}]`);
+      throw new UnprocessableEntityException(
+        `Generated CV contains skills with no traceable origin (${offenders
+          .slice(0, 5)
+          .join(', ')}) — verify them with the candidate first or regenerate`,
+      );
     }
   }
 

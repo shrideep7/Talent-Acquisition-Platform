@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsString, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { SourcingService } from './sourcing.service';
 
@@ -23,6 +23,11 @@ class BulkUploadDto {
   @IsString()
   @MinLength(1)
   jdId!: string;
+
+  /** DPDP consent captured at upload time for all candidates in the batch. */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  consent?: 'true' | 'false';
 }
 
 @ApiTags('sourcing')
@@ -65,6 +70,7 @@ export class SourcingController {
         mimetype: f.mimetype,
       })),
       userId: user.id,
+      consent: dto.consent === 'true',
     });
   }
 

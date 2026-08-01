@@ -94,42 +94,60 @@ export class CandidatesService {
         ? { consentStatus: 'GRANTED' as const, consentAt: new Date() }
         : {};
 
-    const existing = emailHash
-      ? await this.prisma.candidate.findFirst({ where: { emailHash, deletedAt: null } })
-      : null;
+    let candidate: Candidate | null = null;
+    let created = false;
+    // Dedupe by emailHash with a retry: under concurrent bulk uploads two
+    // files for the same person can race findFirst→create; the unique index
+    // on emailHash turns the loser into a P2002, which we resolve by
+    // re-reading and taking the update path.
+    for (let attempt = 0; attempt < 2 && candidate === null; attempt++) {
+      const existing = emailHash
+        ? await this.prisma.candidate.findFirst({ where: { emailHash, deletedAt: null } })
+        : null;
 
-    let candidate: Candidate;
-    const created = !existing;
-    if (existing) {
-      candidate = await this.prisma.candidate.update({
-        where: { id: existing.id },
-        data: {
-          fullName,
-          phone: parsedCv.phone ? this.crypto.encrypt(parsedCv.phone) : undefined,
-          currentLocation: parsedCv.location ?? undefined,
-          currentTitle: currentTitle ?? undefined,
-          noticePeriod: parsedCv.noticePeriod ?? undefined,
-          totalYearsExperience: parsedCv.totalYearsExperience ?? undefined,
-          ...consentFields,
-        },
-      });
-    } else {
-      candidate = await this.prisma.candidate.create({
-        data: {
-          fullName,
-          email: this.crypto.encrypt(parsedCv.email),
-          emailHash,
-          phone: this.crypto.encrypt(parsedCv.phone),
-          currentLocation: parsedCv.location,
-          currentTitle,
-          noticePeriod: parsedCv.noticePeriod,
-          totalYearsExperience: parsedCv.totalYearsExperience,
-          source: opts.source,
-          createdById: opts.userId,
-          ...consentFields,
-        },
-      });
+      if (existing) {
+        created = false;
+        candidate = await this.prisma.candidate.update({
+          where: { id: existing.id },
+          data: {
+            fullName,
+            phone: parsedCv.phone ? this.crypto.encrypt(parsedCv.phone) : undefined,
+            currentLocation: parsedCv.location ?? undefined,
+            currentTitle: currentTitle ?? undefined,
+            noticePeriod: parsedCv.noticePeriod ?? undefined,
+            totalYearsExperience: parsedCv.totalYearsExperience ?? undefined,
+            ...consentFields,
+          },
+        });
+      } else {
+        try {
+          created = true;
+          candidate = await this.prisma.candidate.create({
+            data: {
+              fullName,
+              email: this.crypto.encrypt(parsedCv.email),
+              emailHash,
+              phone: this.crypto.encrypt(parsedCv.phone),
+              currentLocation: parsedCv.location,
+              currentTitle,
+              noticePeriod: parsedCv.noticePeriod,
+              totalYearsExperience: parsedCv.totalYearsExperience,
+              source: opts.source,
+              createdById: opts.userId,
+              ...consentFields,
+            },
+          });
+        } catch (err) {
+          if ((err as { code?: string }).code !== 'P2002' || attempt === 1) throw err;
+          // Lost the race — loop re-reads and takes the update path.
+        }
+      }
     }
+    if (!candidate) throw new BadRequestException('Could not create or update candidate — retry');
+
+    // Link the cv-parse cache entry (written before the candidate existed)
+    // so DPDP erasure can purge it.
+    await this.anthropic.tagCacheWithCandidate(ai.cacheKey, candidate.id);
 
     const cvDocument = await this.prisma.cvDocument.create({
       data: {
@@ -245,17 +263,23 @@ export class CandidatesService {
     });
     if (!candidate) throw new NotFoundException('Candidate not found');
 
+    const failedFileKeys: string[] = [];
     for (const doc of candidate.cvDocuments) {
       try {
         await this.storage.delete(doc.fileKey);
       } catch (err) {
-        this.logger.warn(
+        failedFileKeys.push(doc.fileKey);
+        this.logger.error(
           `Could not delete stored CV file ${doc.fileKey} for candidate ${id}: ${(err as Error).message}`,
         );
       }
     }
 
-    // Hard delete — cascades wipe cvDocuments, analyses, versions, preps, pipeline.
+    // Purge cached LLM responses that embed this candidate's CV content.
+    const purged = await this.prisma.llmCache.deleteMany({ where: { candidateId: id } });
+
+    // Hard delete — cascades wipe cvDocuments, analyses, versions, preps,
+    // pipeline entries, and verified skills.
     await this.prisma.candidate.delete({ where: { id } });
 
     await this.audit.log({
@@ -263,7 +287,13 @@ export class CandidatesService {
       action: 'CANDIDATE_DELETED',
       entityType: 'candidate',
       entityId: id,
-      detail: { reason: 'dpdp_erasure' },
+      detail: {
+        reason: 'dpdp_erasure',
+        llmCachePurged: purged.count,
+        // Orphaned object-store keys that need manual cleanup (storage was
+        // unreachable during erasure) — the DB rows referencing them are gone.
+        ...(failedFileKeys.length > 0 ? { orphanedFileKeys: failedFileKeys } : {}),
+      },
     });
 
     return { success: true };

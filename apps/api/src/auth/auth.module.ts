@@ -14,10 +14,17 @@ import { UsersService } from './users.service';
       global: true,
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET') ?? 'mfd-dev-secret-do-not-use-in-prod',
-        signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN') ?? '12h' },
-      }),
+      useFactory: (config: ConfigService) => {
+        const secret = config.get<string>('JWT_SECRET');
+        if (!secret && process.env.NODE_ENV === 'production') {
+          // Fail fast: a known fallback secret would let anyone forge tokens.
+          throw new Error('JWT_SECRET must be set in production — refusing to start');
+        }
+        return {
+          secret: secret ?? 'mfd-dev-secret-do-not-use-in-prod',
+          signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN') ?? '12h' },
+        };
+      },
     }),
   ],
   controllers: [AuthController, UsersController],

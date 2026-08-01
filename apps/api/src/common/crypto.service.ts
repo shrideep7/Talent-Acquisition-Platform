@@ -21,16 +21,17 @@ export class CryptoService {
         throw new Error('ENCRYPTION_KEY must be a base64-encoded 32-byte key (openssl rand -base64 32)');
       }
       this.key = buf;
+    } else if (process.env.NODE_ENV === 'production') {
+      // Fail fast: never store candidate PII under a guessable derived key.
+      throw new Error(
+        'ENCRYPTION_KEY must be set in production (openssl rand -base64 32) — refusing to start',
+      );
     } else {
       // Development fallback — deterministic key derived from JWT secret so
-      // data survives restarts; production must set ENCRYPTION_KEY.
+      // data survives restarts.
       const seed = config.get<string>('JWT_SECRET') ?? 'mfd-dev-only';
       this.key = createHash('sha256').update(`mfd-pii:${seed}`).digest();
-      if (process.env.NODE_ENV === 'production') {
-        this.logger.error('ENCRYPTION_KEY is not set in production — set it before storing candidate PII');
-      } else {
-        this.logger.warn('ENCRYPTION_KEY not set — using development-derived key');
-      }
+      this.logger.warn('ENCRYPTION_KEY not set — using development-derived key');
     }
   }
 

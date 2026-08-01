@@ -35,6 +35,7 @@ export class PrepService {
       promptName: 'interview-prep',
       schema: InterviewPrepSchema,
       schemaVersion: 'v1',
+      candidateId,
       userContent: JSON.stringify({ jd: parsedJd, cv: parsedCv, breakdown }),
     });
 
@@ -90,6 +91,7 @@ export class PrepService {
       promptName: 'verification-checklist',
       schema: SkillVerificationChecklistSchema,
       schemaVersion: 'v1',
+      candidateId,
       userContent: JSON.stringify({ jd: parsedJd, cv: parsedCv, unverifiedPossibleSkills }),
     });
     return ai.data;

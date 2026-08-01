@@ -119,8 +119,9 @@ model Candidate {
   fullName  String
   /// AES-256-GCM encrypted, format "enc:v1:<iv>:<tag>:<ciphertext>"
   email     String?
-  /// sha256(lowercased email) for dedupe/lookup without decryption
-  emailHash String?
+  /// sha256(lowercased email) for dedupe/lookup without decryption.
+  /// Unique (NULLs exempt) so concurrent ingestion cannot create duplicates.
+  emailHash String? @unique
   /// AES-256-GCM encrypted
   phone     String?
   currentLocation      String?
@@ -144,7 +145,6 @@ model Candidate {
   pipelineEntries PipelineEntry[]
   verifiedSkills  VerifiedSkill[]
 
-  @@index([emailHash])
   @@map("candidates")
 }
 
@@ -202,6 +202,9 @@ model CvVersion {
   parentVersionId String?
   parentVersion   CvVersion?      @relation("VersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull)
   childVersions   CvVersion[]     @relation("VersionLineage")
+  /// The CvDocument this version was generated from — integrity checks on
+  /// later edits validate against this exact source, not the latest upload.
+  sourceCvDocumentId String?
   versionNumber   Int
   /// GeneratedCv JSON (packages/shared GeneratedCvSchema)
   content         Json
@@ -349,8 +352,12 @@ model LlmCache {
   promptVersion String
   model         String
   response      Json
+  /// When the cached response embeds a candidate's CV content, this links it
+  /// so DPDP erasure can purge it.
+  candidateId   String?
   createdAt     DateTime @default(now())
 
+  @@index([candidateId])
   @@map("llm_cache")
 }
 

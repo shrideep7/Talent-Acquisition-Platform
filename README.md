@@ -123,8 +123,15 @@ The CV generator only uses tiers backed by evidence, and the interview prep flow
 
 - **PII encryption at rest** — candidate email and phone are stored AES-256-GCM encrypted; a salted hash of the email supports deduplication without decryption. Sourcing credentials are stored as encrypted payloads.
 - **Consent capture** — each candidate carries a consent status (`PENDING` / `GRANTED` / `REVOKED`) with timestamp and note.
-- **Erasure** — a hard-delete endpoint removes a candidate and all dependent records (documents, analyses, CV versions, pipeline entries) to satisfy erasure requests; routine deletes are soft-deletes.
-- **Audit trail** — sensitive actions are written to an audit log with actor, entity, and IP.
+- **Erasure** — a hard-delete endpoint removes a candidate and all dependent records (documents, analyses, CV versions, interview preps, pipeline entries, verified skills) **and purges cached AI responses linked to the candidate**. If object storage is unreachable during erasure, the orphaned file keys are recorded in the audit entry for manual cleanup.
+- **Consent in bulk mode** — the bulk-upload screen includes a batch-level consent attestation; candidates uploaded without it stay `PENDING` until consent is recorded individually.
+- **Audit trail** — sensitive actions are written to an audit log with actor, entity, and IP. Audit entries deliberately survive candidate erasure as a processing record; they contain file names and IDs but no CV content or contact details.
+
+### Known trade-offs
+
+- Extracted CV text (`cv_documents.parsedText` / `parsedCv`) is stored unencrypted at the application level so keyword matching and search stay fast — it is removed by erasure, and production deployments should additionally enable database/disk-level encryption.
+- Scoring, generation, and prep calls run regardless of consent status; if your legal review requires consent-gated processing, gate the analysis endpoints on `consentStatus === 'GRANTED'`.
+- The app fails fast at startup in production if `ENCRYPTION_KEY` or `JWT_SECRET` is missing.
 
 ## Roles
 
