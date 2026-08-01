@@ -1,6 +1,477 @@
-// TEMP STUB — replaced by prep agent
 'use client';
 
-export function PrepPanel(props: { jdId: string; candidateId: string }): JSX.Element {
-  return null as unknown as JSX.Element;
+import * as React from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ListChecks,
+  Loader2,
+  Printer,
+  RefreshCw,
+  Sparkles,
+  XCircle,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import type { InterviewPrep, InterviewPrepDto, SkillVerificationChecklist } from '@mfd/shared';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { api, ApiError } from '@/lib/api';
+import { useAuth } from '@/lib/use-auth';
+import { cn, formatDateTime } from '@/lib/utils';
+
+// ---------------------------------------------------------------------------
+// Styling maps
+// ---------------------------------------------------------------------------
+
+type QuestionCategory = InterviewPrep['likelyQuestions'][number]['category'];
+type GapSeverity = InterviewPrep['skillGaps'][number]['severity'];
+
+const CATEGORY_LABELS: Record<QuestionCategory, string> = {
+  technical: 'Technical',
+  project_deep_dive: 'Project deep dive',
+  behavioral: 'Behavioral',
+  domain: 'Domain',
+  scenario: 'Scenario',
+};
+
+const CATEGORY_STYLES: Record<QuestionCategory, string> = {
+  technical: 'border-transparent bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+  project_deep_dive:
+    'border-transparent bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300',
+  behavioral:
+    'border-transparent bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300',
+  domain:
+    'border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+  scenario: 'border-transparent bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+};
+
+const SEVERITY_ORDER: GapSeverity[] = ['critical', 'important', 'minor'];
+
+const SEVERITY_CARD: Record<GapSeverity, string> = {
+  critical: 'border-l-4 border-l-red-500',
+  important: 'border-l-4 border-l-amber-500',
+  minor: 'border-l-4 border-l-slate-400',
+};
+
+const SEVERITY_BADGE: Record<GapSeverity, string> = {
+  critical: 'border-transparent bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
+  important: 'border-transparent bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+  minor: 'border-transparent bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300',
+};
+
+const SEVERITY_TITLES: Record<GapSeverity, string> = {
+  critical: 'Critical gaps',
+  important: 'Important gaps',
+  minor: 'Minor gaps',
+};
+
+function prepErrorToast(err: unknown, fallback: string) {
+  if (err instanceof ApiError && err.status === 422) {
+    toast.error('Run a match analysis first', {
+      description: 'The prep pack is built from the latest match analysis for this JD and candidate.',
+    });
+    return;
+  }
+  toast.error(err instanceof Error ? err.message : fallback);
+}
+
+// ---------------------------------------------------------------------------
+// PrepPanel — EXACT export contract, imported by the Analyzer as
+// import { PrepPanel } from '@/components/prep/prep-panel';
+// ---------------------------------------------------------------------------
+
+export function PrepPanel({ jdId, candidateId }: { jdId: string; candidateId: string }): JSX.Element {
+  const { user } = useAuth();
+  const isViewer = user?.role === 'VIEWER';
+  const queryClient = useQueryClient();
+
+  const prepsQuery = useQuery({
+    queryKey: ['interview-preps', jdId, candidateId],
+    queryFn: () =>
+      api.get<InterviewPrepDto[]>(`/interview-preps?jdId=${jdId}&candidateId=${candidateId}`),
+  });
+  // API returns latest first.
+  const latest = prepsQuery.data?.[0] ?? null;
+
+  const generate = useMutation({
+    mutationFn: () => api.post<InterviewPrepDto>('/interview-preps', { jdId, candidateId }),
+    onSuccess: () => {
+      toast.success('Interview prep pack generated');
+      queryClient.invalidateQueries({ queryKey: ['interview-preps', jdId, candidateId] });
+    },
+    onError: (err) => prepErrorToast(err, 'Failed to generate the prep pack'),
+  });
+
+  if (prepsQuery.isLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-9 w-64" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
+
+  if (!latest) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Interview Prep Pack</CardTitle>
+          <CardDescription>
+            Generates three briefings from the latest match analysis: the questions the client is
+            likely to ask, a skill-gap briefing to prepare the candidate, and genuineness-screening
+            questions for MFD&apos;s internal interview.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {generate.isPending ? (
+            <GeneratingHint />
+          ) : isViewer ? (
+            <p className="text-sm text-muted-foreground">
+              No prep pack has been generated yet. Ask a recruiter to generate one.
+            </p>
+          ) : (
+            <Button onClick={() => generate.mutate()}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Generate Interview Prep Pack
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const prep = latest.prep;
+
+  return (
+    <div className="space-y-4">
+      {/* Print stylesheet — hides the app chrome when printing the prep pack. */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+@media print {
+  aside, nav, header { display: none !important; }
+  .pl-60 { padding-left: 0 !important; }
+  main { padding: 0 !important; }
+  .prep-print-hidden { display: none !important; }
+}`,
+        }}
+      />
+
+      {/* Header row */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          Prep pack generated {formatDateTime(latest.createdAt)}
+        </p>
+        <div className="prep-print-hidden flex items-center gap-2">
+          {!isViewer && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => generate.mutate()}
+              disabled={generate.isPending}
+            >
+              {generate.isPending ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Regenerate
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => window.print()}>
+            <Printer className="mr-1.5 h-3.5 w-3.5" />
+            Print
+          </Button>
+        </div>
+      </div>
+
+      {generate.isPending && <GeneratingHint />}
+
+      <Tabs defaultValue="questions">
+        <TabsList className="prep-print-hidden">
+          <TabsTrigger value="questions">Likely Client Questions</TabsTrigger>
+          <TabsTrigger value="gaps">Skill Gap Briefing</TabsTrigger>
+          <TabsTrigger value="screening">Genuineness Screening</TabsTrigger>
+        </TabsList>
+
+        {/* ------------------------------------------------ Likely questions */}
+        <TabsContent value="questions" className="space-y-3">
+          {prep.likelyQuestions.length === 0 ? (
+            <EmptyNote text="No likely questions were generated." />
+          ) : (
+            prep.likelyQuestions.map((q, i) => (
+              <Card key={i}>
+                <CardContent className="space-y-2 pt-5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="text-sm font-semibold leading-snug">{q.question}</p>
+                    <Badge className={cn('shrink-0 shadow-none', CATEGORY_STYLES[q.category])}>
+                      {CATEGORY_LABELS[q.category]}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Why: {q.basis}</p>
+                  {q.prepPoints.length > 0 && (
+                    <ul className="space-y-1.5 pt-1">
+                      {q.prepPoints.map((point, j) => (
+                        <li key={j} className="flex items-start gap-2 text-sm">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                          <span>{point}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </TabsContent>
+
+        {/* ------------------------------------------------ Skill gap briefing */}
+        <TabsContent value="gaps" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Use this to brief the candidate before the client interview.
+          </p>
+          {prep.skillGaps.length === 0 ? (
+            <EmptyNote text="No skill gaps identified — the candidate covers the JD well." />
+          ) : (
+            SEVERITY_ORDER.map((severity) => {
+              const gaps = prep.skillGaps.filter((g) => g.severity === severity);
+              if (gaps.length === 0) return null;
+              return (
+                <div key={severity} className="space-y-2">
+                  <h4 className="text-sm font-medium">
+                    {SEVERITY_TITLES[severity]}{' '}
+                    <span className="font-normal text-muted-foreground">({gaps.length})</span>
+                  </h4>
+                  {gaps.map((gap, i) => (
+                    <Card key={i} className={SEVERITY_CARD[severity]}>
+                      <CardContent className="space-y-2 pt-5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold">{gap.skill}</p>
+                          <Badge className={cn('shadow-none', SEVERITY_BADGE[severity])}>
+                            {severity}
+                          </Badge>
+                          <Badge variant="outline" className="font-normal capitalize">
+                            {gap.gapType}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{gap.currentState}</p>
+                        <p className="text-sm">{gap.prepPlan}</p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              );
+            })
+          )}
+        </TabsContent>
+
+        {/* ------------------------------------------------ Genuineness screening */}
+        <TabsContent value="screening" className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Ask these in MFD&apos;s internal interview to verify the CV is authentic.
+          </p>
+          {prep.screeningQuestions.length === 0 ? (
+            <EmptyNote text="No screening questions were generated." />
+          ) : (
+            prep.screeningQuestions.map((q, i) => (
+              <Card key={i}>
+                <CardContent className="space-y-3 pt-5">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold leading-snug">{q.question}</p>
+                    <p className="text-sm text-muted-foreground">{q.purpose}</p>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                        Listen for
+                      </p>
+                      <ul className="space-y-1">
+                        {q.listenFor.map((item, j) => (
+                          <li key={j} className="flex items-start gap-2 text-sm">
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium uppercase tracking-wide text-red-700 dark:text-red-400">
+                        Red flags
+                      </p>
+                      <ul className="space-y-1">
+                        {q.redFlags.map((item, j) => (
+                          <li key={j} className="flex items-start gap-2 text-sm">
+                            <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </TabsContent>
+      </Tabs>
+
+      <VerificationChecklistSection jdId={jdId} candidateId={candidateId} isViewer={isViewer} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pieces
+// ---------------------------------------------------------------------------
+
+function GeneratingHint() {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3">
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">
+        Generating the prep pack from the latest match analysis — this usually takes about a
+        minute…
+      </p>
+    </div>
+  );
+}
+
+function EmptyNote({ text }: { text: string }) {
+  return (
+    <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+      {text}
+    </p>
+  );
+}
+
+function VerificationChecklistSection({
+  jdId,
+  candidateId,
+  isViewer,
+}: {
+  jdId: string;
+  candidateId: string;
+  isViewer: boolean;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [checklist, setChecklist] = React.useState<SkillVerificationChecklist | null>(null);
+
+  const generate = useMutation({
+    mutationFn: () =>
+      api.post<SkillVerificationChecklist>('/interview-preps/verification-checklist', {
+        jdId,
+        candidateId,
+      }),
+    onSuccess: (result) => {
+      setChecklist(result);
+      toast.success(
+        result.items.length === 0
+          ? 'No unverified-possible skills to check'
+          : `Checklist generated for ${result.items.length} skill${result.items.length === 1 ? '' : 's'}`,
+      );
+    },
+    onError: (err) => prepErrorToast(err, 'Failed to generate the checklist'),
+  });
+
+  return (
+    <div className="rounded-lg border">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/50"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-2 text-sm font-medium">
+          {open ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
+          <ListChecks className="h-4 w-4 text-muted-foreground" />
+          Skill Verification Checklist
+        </span>
+        <span className="prep-print-hidden text-xs text-muted-foreground">
+          For Tier-3 (unverified-possible) skills from the latest analysis
+        </span>
+      </button>
+
+      {open && (
+        <div className="space-y-3 border-t p-4">
+          {checklist === null ? (
+            generate.isPending ? (
+              <GeneratingHint />
+            ) : isViewer ? (
+              <p className="text-sm text-muted-foreground">
+                Checklist generation requires a recruiter or admin role.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Builds verification questions for skills the candidate plausibly has but the CV
+                  does not evidence. If the candidate demonstrates a skill, record the evidence in
+                  the Skill Verification board so it can enter generated CVs.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => generate.mutate()}
+                  className="prep-print-hidden"
+                >
+                  <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                  Generate checklist for unverified skills
+                </Button>
+              </div>
+            )
+          ) : checklist.items.length === 0 ? (
+            <EmptyNote text="No unverified-possible skills in the latest analysis" />
+          ) : (
+            <>
+              {checklist.items.map((item, i) => (
+                <Card key={i}>
+                  <CardContent className="space-y-3 pt-5">
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold">{item.skill}</p>
+                      <p className="text-sm text-muted-foreground">{item.whyPlausible}</p>
+                    </div>
+                    <ol className="list-decimal space-y-1 pl-5 text-sm">
+                      {item.verificationQuestions.map((question, j) => (
+                        <li key={j}>{question}</li>
+                      ))}
+                    </ol>
+                    <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+                      <span className="font-medium">Evidence to record: </span>
+                      {item.evidenceToRecord}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {!isViewer && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => generate.mutate()}
+                  disabled={generate.isPending}
+                  className="prep-print-hidden"
+                >
+                  {generate.isPending ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  Regenerate checklist
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
