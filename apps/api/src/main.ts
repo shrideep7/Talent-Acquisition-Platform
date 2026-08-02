@@ -9,7 +9,9 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/v1');
   app.enableCors({
-    origin: (process.env.API_CORS_ORIGIN ?? 'http://localhost:3000').split(','),
+    origin: (
+      process.env.API_CORS_ORIGIN ?? 'http://localhost:3000,http://127.0.0.1:3000'
+    ).split(','),
     credentials: true,
   });
   app.use(json({ limit: '5mb' }));

@@ -68,7 +68,7 @@ services:
     environment:
       NODE_ENV: production
       API_PORT: "4000"
-      API_CORS_ORIGIN: ${API_CORS_ORIGIN:-http://localhost:3000}
+      API_CORS_ORIGIN: ${API_CORS_ORIGIN:-http://localhost:3000,http://127.0.0.1:3000}
       DATABASE_URL: postgresql://mfd:mfd_dev_password@postgres:5432/mfd_tat?schema=public
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
