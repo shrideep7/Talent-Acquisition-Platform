@@ -1,0 +1,5 @@
+# Shell scripts must keep LF line endings — CRLF breaks shebangs inside
+# Linux containers ("exec: entrypoint.sh: not found") on Windows checkouts.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.prisma text eol=lf

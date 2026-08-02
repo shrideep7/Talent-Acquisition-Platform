@@ -82,7 +82,9 @@ ENV CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage"
 
 WORKDIR /app
 COPY --from=build --chown=node:node /out/api /app
-RUN chmod +x /app/entrypoint.sh
+# Strip Windows CRLF line endings (a checkout with core.autocrlf=true breaks
+# the shebang: "exec: /app/entrypoint.sh: not found"), then mark executable.
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 USER node
 EXPOSE 4000
