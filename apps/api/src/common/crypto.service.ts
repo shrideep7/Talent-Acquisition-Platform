@@ -14,13 +14,9 @@ export class CryptoService {
   private readonly key: Buffer;
 
   constructor(config: ConfigService) {
-    const raw = config.get<string>('ENCRYPTION_KEY');
+    const raw = config.get<string>('ENCRYPTION_KEY')?.trim().replace(/^["']|["']$/g, '');
     if (raw && raw.length > 0) {
-      const buf = Buffer.from(raw, 'base64');
-      if (buf.length !== 32) {
-        throw new Error('ENCRYPTION_KEY must be a base64-encoded 32-byte key (openssl rand -base64 32)');
-      }
-      this.key = buf;
+      this.key = CryptoService.resolveKey(raw);
     } else if (process.env.NODE_ENV === 'production') {
       // Fail fast: never store candidate PII under a guessable derived key.
       throw new Error(
@@ -33,6 +29,31 @@ export class CryptoService {
       this.key = createHash('sha256').update(`mfd-pii:${seed}`).digest();
       this.logger.warn('ENCRYPTION_KEY not set — using development-derived key');
     }
+  }
+
+  /**
+   * Accepts a 32-byte base64 key (the documented format), a 64-char hex key,
+   * or any high-entropy secret of 32+ characters (SHA-256-derived). Anything
+   * shorter is rejected — a short key would make PII encryption guessable.
+   */
+  private static resolveKey(raw: string): Buffer {
+    if (/^[0-9a-fA-F]{64}$/.test(raw)) {
+      return Buffer.from(raw, 'hex');
+    }
+    if (/^[A-Za-z0-9+/]+={0,2}$/.test(raw)) {
+      const buf = Buffer.from(raw, 'base64');
+      if (buf.length === 32) return buf;
+    }
+    if (raw.length >= 32) {
+      // High-entropy passphrase — derive a proper 32-byte key from it.
+      return createHash('sha256').update(`mfd-pii:${raw}`).digest();
+    }
+    const decoded = Buffer.from(raw, 'base64').length;
+    throw new Error(
+      `ENCRYPTION_KEY is invalid: got ${raw.length} characters (decodes to ${decoded} bytes). ` +
+        'Provide a base64-encoded 32-byte key — generate one with: openssl rand -base64 32 ' +
+        '(the result is a single 44-character line ending in "=").',
+    );
   }
 
   encrypt(plaintext: string | null | undefined): string | null {
