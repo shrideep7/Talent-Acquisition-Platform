@@ -9,7 +9,7 @@ import type {
   ParsedJd,
   SkillVerificationChecklist,
 } from '@mfd/shared';
-import { AnthropicService } from '../ai/anthropic.service';
+import { LlmService } from '../ai/llm.service';
 import { AuditService } from '../common/audit.service';
 import type { AuthUser } from '../common/decorators';
 import { PrismaService } from '../common/prisma.service';
@@ -24,14 +24,14 @@ interface PrepContext {
 export class PrepService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly anthropic: AnthropicService,
+    private readonly llm: LlmService,
     private readonly audit: AuditService,
   ) {}
 
   async generate(jdId: string, candidateId: string, user: AuthUser): Promise<InterviewPrepDto> {
     const { parsedJd, parsedCv, breakdown } = await this.loadContext(jdId, candidateId);
 
-    const ai = await this.anthropic.structured({
+    const ai = await this.llm.structured({
       promptName: 'interview-prep',
       schema: InterviewPrepSchema,
       schemaVersion: 'v1',
@@ -87,7 +87,7 @@ export class PrepService {
 
     if (unverifiedPossibleSkills.length === 0) return { items: [] };
 
-    const ai = await this.anthropic.structured({
+    const ai = await this.llm.structured({
       promptName: 'verification-checklist',
       schema: SkillVerificationChecklistSchema,
       schemaVersion: 'v1',

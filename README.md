@@ -29,8 +29,10 @@ Prerequisites: Docker with the Compose plugin.
 ```bash
 cp .env.example .env
 
-# Required — the stack refuses to start without these two:
+# Required — the stack needs an AI provider key and an encryption key:
 #   ANTHROPIC_API_KEY   your Anthropic API key
+#     — or —
+#   GEMINI_API_KEY      your Google Gemini API key (set LLM_PROVIDER=gemini)
 #   ENCRYPTION_KEY      candidate-PII encryption key:
 openssl rand -base64 32   # paste the output into ENCRYPTION_KEY in .env
 
@@ -86,9 +88,12 @@ All configuration lives in `.env` (see `.env.example`). Docker Compose reads it 
 | `ADMIN_PASSWORD` | `ChangeMe123!` | Seeded admin password — change it |
 | `ADMIN_NAME` | `MFD Admin` | Seeded admin display name |
 | `ENCRYPTION_KEY` | — **required** | 32-byte base64 key for candidate PII encryption (`openssl rand -base64 32`) |
-| `ANTHROPIC_API_KEY` | — **required** | Anthropic API key for analysis/generation |
-| `ANTHROPIC_MODEL` | `claude-opus-5` | Model used for AI calls |
-| `ANTHROPIC_EFFORT` | `medium` | Reasoning effort: `low` \| `medium` \| `high` |
+| `LLM_PROVIDER` | auto | AI provider: `anthropic` or `gemini`. When unset, inferred from which key is present (Anthropic wins if both) |
+| `ANTHROPIC_API_KEY` | — | Anthropic API key (required when using the Anthropic provider) |
+| `ANTHROPIC_MODEL` | `claude-opus-5` | Claude model used for AI calls |
+| `ANTHROPIC_EFFORT` | `medium` | Claude reasoning effort: `low` \| `medium` \| `high` |
+| `GEMINI_API_KEY` | — | Google Gemini API key (required when using the Gemini provider) |
+| `GEMINI_MODEL` | `gemini-2.5-pro` | Gemini model — `gemini-2.5-flash` is a cheaper/faster option |
 | `S3_ENDPOINT` | `http://localhost:9000` | S3-compatible endpoint (`http://minio:9000` inside Compose) |
 | `S3_REGION` | `us-east-1` | S3 region |
 | `S3_ACCESS_KEY` | `mfd-minio` | S3 access key (also MinIO root user) |

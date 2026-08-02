@@ -8,7 +8,7 @@ import type {
   SemanticMatch,
   SkillJudgement,
 } from '@mfd/shared';
-import { AnthropicService } from '../ai/anthropic.service';
+import { LlmService } from '../ai/llm.service';
 import { AuditService } from '../common/audit.service';
 import { PrismaService } from '../common/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -49,7 +49,7 @@ export class ScoringService implements IScoringService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly anthropic: AnthropicService,
+    private readonly llm: LlmService,
     private readonly settings: SettingsService,
     private readonly atsChecks: AtsChecksService,
   ) {}
@@ -58,7 +58,7 @@ export class ScoringService implements IScoringService {
     const weights = await this.settings.getWeights();
     const criteria = input.jd.parsedCriteria;
 
-    const semantic = await this.anthropic.structured({
+    const semantic = await this.llm.structured({
       promptName: 'semantic-match',
       schema: SemanticMatchSchema,
       schemaVersion: 'v1',

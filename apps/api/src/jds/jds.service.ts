@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { Jd, User } from '@prisma/client';
 import { ParsedJdSchema } from '@mfd/shared';
 import type { JdDto, ParsedJd, UserDto } from '@mfd/shared';
-import { AnthropicService } from '../ai/anthropic.service';
+import { LlmService } from '../ai/llm.service';
 import { AuditService } from '../common/audit.service';
 import type { AuthUser } from '../common/decorators';
 import { PrismaService } from '../common/prisma.service';
@@ -29,7 +29,7 @@ export class JdsService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
-    private readonly anthropic: AnthropicService,
+    private readonly llm: LlmService,
     private readonly documentParser: DocumentParserService,
   ) {}
 
@@ -58,7 +58,7 @@ export class JdsService {
       throw new BadRequestException('No text could be extracted from the JD document');
     }
 
-    const result = await this.anthropic.structured({
+    const result = await this.llm.structured({
       promptName: 'jd-parse',
       schema: ParsedJdSchema,
       schemaVersion: 'v1',
@@ -111,7 +111,7 @@ export class JdsService {
   async reparse(id: string, user: AuthUser): Promise<JdDto> {
     const jd = await this.getEntity(id);
 
-    const result = await this.anthropic.structured({
+    const result = await this.llm.structured({
       promptName: 'jd-parse',
       schema: ParsedJdSchema,
       schemaVersion: 'v1',

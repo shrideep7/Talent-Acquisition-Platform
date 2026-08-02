@@ -15,7 +15,7 @@ import type {
   ParsedCv,
   ParsedJd,
 } from '@mfd/shared';
-import { AnthropicService } from '../ai/anthropic.service';
+import { LlmService } from '../ai/llm.service';
 import { ScoringService } from '../analyses/scoring.service';
 import type { ScoreCvResult } from '../analyses/scoring.types';
 import { AuditService } from '../common/audit.service';
@@ -56,7 +56,7 @@ export class CvVersionsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly anthropic: AnthropicService,
+    private readonly llm: LlmService,
     private readonly scoring: ScoringService,
     private readonly audit: AuditService,
   ) {}
@@ -119,7 +119,7 @@ export class CvVersionsService {
     });
     const verifiedSkills = verifiedRows.map((s) => ({ skill: s.skill, evidence: s.evidence ?? '' }));
 
-    const ai = await this.anthropic.structured({
+    const ai = await this.llm.structured({
       promptName: 'cv-rewrite',
       schema: CvRewriteResultSchema,
       schemaVersion: 'v1',

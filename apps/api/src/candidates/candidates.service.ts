@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import type { Candidate, CvDocument } from '@prisma/client';
 import { ParsedCvSchema } from '@mfd/shared';
 import type { CandidateDto, CandidateSource, CvDocumentDto, ParsedCv } from '@mfd/shared';
-import { AnthropicService } from '../ai/anthropic.service';
+import { LlmService } from '../ai/llm.service';
 import { AuditService } from '../common/audit.service';
 import type { AuthUser } from '../common/decorators';
 import { CryptoService } from '../common/crypto.service';
@@ -54,7 +54,7 @@ export class CandidatesService {
     private readonly crypto: CryptoService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
-    private readonly anthropic: AnthropicService,
+    private readonly llm: LlmService,
     private readonly documentParser: DocumentParserService,
   ) {}
 
@@ -77,7 +77,7 @@ export class CandidatesService {
 
     const fileKey = await this.storage.put('cvs', opts.fileName, opts.buffer, opts.mimeType);
 
-    const ai = await this.anthropic.structured({
+    const ai = await this.llm.structured({
       promptName: 'cv-parse',
       schema: ParsedCvSchema,
       schemaVersion: 'v1',
@@ -147,7 +147,7 @@ export class CandidatesService {
 
     // Link the cv-parse cache entry (written before the candidate existed)
     // so DPDP erasure can purge it.
-    await this.anthropic.tagCacheWithCandidate(ai.cacheKey, candidate.id);
+    await this.llm.tagCacheWithCandidate(ai.cacheKey, candidate.id);
 
     const cvDocument = await this.prisma.cvDocument.create({
       data: {
