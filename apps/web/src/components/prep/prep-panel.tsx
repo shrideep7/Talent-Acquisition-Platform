@@ -6,15 +6,24 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   ListChecks,
   Loader2,
+  MessageCircleQuestion,
+  PhoneCall,
   Printer,
   RefreshCw,
+  Scale,
   Sparkles,
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { InterviewPrep, InterviewPrepDto, SkillVerificationChecklist } from '@mfd/shared';
+import type {
+  HrScreeningCall,
+  InterviewPrep,
+  InterviewPrepDto,
+  SkillVerificationChecklist,
+} from '@mfd/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -71,6 +80,25 @@ const SEVERITY_TITLES: Record<GapSeverity, string> = {
   minor: 'Minor gaps',
 };
 
+type ScreeningArea = HrScreeningCall['questions'][number]['area'];
+
+const AREA_LABELS: Record<ScreeningArea, string> = {
+  experience: 'Experience',
+  skills: 'Skills',
+  projects: 'Projects',
+  education: 'Education',
+  logistics: 'Logistics',
+};
+
+const AREA_STYLES: Record<ScreeningArea, string> = {
+  experience: 'border-transparent bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+  skills: 'border-transparent bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300',
+  projects:
+    'border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+  education: 'border-transparent bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+  logistics: 'border-transparent bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300',
+};
+
 function prepErrorToast(err: unknown, fallback: string) {
   if (err instanceof ApiError && err.status === 422) {
     toast.error('Run a match analysis first', {
@@ -124,8 +152,9 @@ export function PrepPanel({ jdId, candidateId }: { jdId: string; candidateId: st
         <CardHeader>
           <CardTitle className="text-base">Interview Prep Pack</CardTitle>
           <CardDescription>
-            Generates three briefings from the latest match analysis: the questions the client is
-            likely to ask, a skill-gap briefing to prepare the candidate, and genuineness-screening
+            Generates four briefings from the latest match analysis: an HR screening-call deck to
+            verify the candidate is genuine on the first call, the questions the client is likely
+            to ask, a skill-gap briefing to prepare the candidate, and genuineness-screening
             questions for MFD&apos;s internal interview.
           </CardDescription>
         </CardHeader>
@@ -194,12 +223,18 @@ export function PrepPanel({ jdId, candidateId }: { jdId: string; candidateId: st
 
       {generate.isPending && <GeneratingHint />}
 
-      <Tabs defaultValue="questions">
+      <Tabs defaultValue="hr-call">
         <TabsList className="prep-print-hidden">
+          <TabsTrigger value="hr-call">HR Screening Call</TabsTrigger>
           <TabsTrigger value="questions">Likely Client Questions</TabsTrigger>
           <TabsTrigger value="gaps">Skill Gap Briefing</TabsTrigger>
           <TabsTrigger value="screening">Genuineness Screening</TabsTrigger>
         </TabsList>
+
+        {/* ------------------------------------------------ HR screening call */}
+        <TabsContent value="hr-call" className="space-y-3">
+          <HrScreeningCallDeck call={prep.hrScreeningCall} />
+        </TabsContent>
 
         {/* ------------------------------------------------ Likely questions */}
         <TabsContent value="questions" className="space-y-3">
@@ -323,6 +358,140 @@ export function PrepPanel({ jdId, candidateId }: { jdId: string; candidateId: st
       </Tabs>
 
       <VerificationChecklistSection jdId={jdId} candidateId={candidateId} isViewer={isViewer} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HR screening call deck — the first telephonic call, run by non-technical HR
+// ---------------------------------------------------------------------------
+
+function HrScreeningCallDeck({ call }: { call: HrScreeningCall | undefined }) {
+  // Packs generated before this deck existed lack the section.
+  if (!call) {
+    return (
+      <EmptyNote text="This prep pack was generated before the HR screening-call deck existed — click Regenerate to add it." />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        For the first telephonic screening — verifies the CV&apos;s experience, skills and projects
+        with questions a non-technical recruiter can ask and judge.
+      </p>
+
+      {/* Opening script */}
+      {call.callOpening.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <PhoneCall className="h-4 w-4 text-muted-foreground" />
+              Opening the call
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1.5">
+              {call.callOpening.map((line, i) => (
+                <li key={i} className="text-sm italic text-muted-foreground">
+                  &ldquo;{line}&rdquo;
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Verification questions, in call order */}
+      {call.questions.length === 0 ? (
+        <EmptyNote text="No screening-call questions were generated." />
+      ) : (
+        call.questions.map((q, i) => (
+          <Card key={i}>
+            <CardContent className="space-y-3 pt-5">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="text-sm font-semibold leading-snug">
+                    {i + 1}. {q.question}
+                  </p>
+                  <Badge className={cn('shrink-0 shadow-none', AREA_STYLES[q.area])}>
+                    {AREA_LABELS[q.area]}
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">Checks: {q.claim}</p>
+              </div>
+              <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">
+                <span className="font-medium">A genuine answer sounds like: </span>
+                {q.genuineAnswer}
+              </div>
+              {q.redFlags.length > 0 && (
+                <ul className="space-y-1">
+                  {q.redFlags.map((flag, j) => (
+                    <li key={j} className="flex items-start gap-2 text-sm">
+                      <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+                      <span>{flag}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {q.followUp && (
+                <p className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <MessageCircleQuestion className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    If vague, ask: <span className="italic">&ldquo;{q.followUp}&rdquo;</span>
+                  </span>
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        ))
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Logistics to confirm before closing */}
+        {call.logisticsChecklist.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+                Before closing — confirm
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-1.5">
+                {call.logisticsChecklist.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* How to judge the call */}
+        {call.verdictGuidance.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Scale className="h-4 w-4 text-muted-foreground" />
+                After the call — how to judge
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-1.5">
+                {call.verdictGuidance.map((rule, i) => (
+                  <li key={i} className="flex gap-2 text-sm">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
+                    <span>{rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

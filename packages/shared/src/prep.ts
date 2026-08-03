@@ -1,9 +1,59 @@
 import { z } from 'zod';
 
 /**
+ * One question in the HR first-screening-call deck. Written for a
+ * non-technical recruiter: every question carries the claim it verifies,
+ * what a genuine answer sounds like, and the red flags — so HR can judge
+ * the answer without technical depth.
+ */
+export const HrScreeningQuestionSchema = z.object({
+  area: z
+    .enum(['experience', 'skills', 'projects', 'education', 'logistics'])
+    .describe('Which part of the CV this question verifies'),
+  claim: z
+    .string()
+    .describe('The specific CV claim being checked, e.g. "Data Engineer at TCS, Jan 2019 – Present"'),
+  question: z
+    .string()
+    .describe('The question, worded so a non-technical HR recruiter can ask it naturally on a phone call'),
+  genuineAnswer: z
+    .string()
+    .describe("What a genuine candidate's answer sounds like — cues HR can recognize without technical depth"),
+  redFlags: z
+    .array(z.string())
+    .describe('Answer patterns suggesting the claim is inflated or fabricated'),
+  followUp: z
+    .string()
+    .nullable()
+    .describe('One probing follow-up to use when the first answer is vague'),
+});
+export type HrScreeningQuestion = z.infer<typeof HrScreeningQuestionSchema>;
+
+/**
+ * Deck for MFD HR's FIRST telephonic screening call: a genuineness check a
+ * non-technical recruiter can run over the candidate's experience, skills
+ * and projects before anyone invests in a technical round.
+ */
+export const HrScreeningCallSchema = z.object({
+  callOpening: z
+    .array(z.string())
+    .describe('2-4 short lines to open the call: introduction, purpose, consent to ask verification questions'),
+  questions: z
+    .array(HrScreeningQuestionSchema)
+    .describe('10-16 questions in the order the call should flow, most load-bearing claims first'),
+  logisticsChecklist: z
+    .array(z.string())
+    .describe('Standard items to confirm before closing: notice period, current/expected CTC, work location and relocation, offers in hand, reason for change'),
+  verdictGuidance: z
+    .array(z.string())
+    .describe('How HR should judge the call afterwards: which answer patterns mean proceed, probe deeper in the genuineness interview, or reject'),
+});
+export type HrScreeningCall = z.infer<typeof HrScreeningCallSchema>;
+
+/**
  * Interview preparation pack: likely client-interview questions, skill gaps
- * for candidate briefing, and genuineness screening questions for MFD's
- * internal interview.
+ * for candidate briefing, genuineness screening questions for MFD's
+ * internal interview, and the HR first-screening-call deck.
  */
 export const InterviewPrepSchema = z.object({
   likelyQuestions: z
@@ -49,6 +99,9 @@ export const InterviewPrepSchema = z.object({
     .describe(
       'Questions MFD HR should ask in the internal genuineness interview to verify the candidate\'s claimed experience',
     ),
+  hrScreeningCall: HrScreeningCallSchema.describe(
+    "Deck for MFD HR's first telephonic screening call — genuineness checks a non-technical recruiter can run on the candidate's experience, skills and projects",
+  ),
 });
 export type InterviewPrep = z.infer<typeof InterviewPrepSchema>;
 
