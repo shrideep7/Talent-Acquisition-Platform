@@ -141,23 +141,51 @@ export class CvVersionsService {
       verifiedRows.map((s) => s.skill),
       beforeBreakdown,
     );
-    this.assertIntegrity(rewrite.cv, sourceCv, allowedSkills, cvDocument.parsedText);
+
+    // Skills the model could not trace to the source CV are withheld rather
+    // than failing the whole generation; the recruiter sees what was held
+    // back and can verify it with the candidate, then regenerate.
+    const { cv: generatedCv, removed: withheldSkills } = this.sanitizeGeneratedSkills(
+      rewrite.cv,
+      allowedSkills,
+      cvDocument.parsedText,
+    );
+    // Employment history, dates, education and certifications remain hard
+    // failures — those are factual claims, not phrasing.
+    this.assertIntegrity(generatedCv, sourceCv, allowedSkills, cvDocument.parsedText);
+
+    const integrityNotes = [
+      ...rewrite.integrityNotes,
+      ...withheldSkills.map(
+        (skill) =>
+          `Withheld "${skill}" from the Skills section — no supporting evidence in the source CV. ` +
+          'Confirm it with the candidate in the genuineness interview (Skill Verification on the ' +
+          'candidate page), then regenerate to include it.',
+      ),
+    ];
 
     const version = await this.createVersionWithRetry({
       candidateId: input.candidateId,
       jdId: input.jdId,
       sourceCvDocumentId: input.cvDocumentId,
-      content: rewrite.cv as unknown as object,
+      content: generatedCv as unknown as object,
       changeLog: rewrite.changes as unknown as object,
-      integrityNotes: rewrite.integrityNotes as unknown as object,
+      integrityNotes: integrityNotes as unknown as object,
       targetScore: input.targetScore,
       createdById: user.id,
     });
     const versionNumber = version.versionNumber;
 
+    if (withheldSkills.length > 0) {
+      this.logger.log(
+        `Withheld ${withheldSkills.length} untraceable skill(s) from version ${version.id}: ${withheldSkills.join(', ')}`,
+      );
+      await this.proposeWithheldSkills(withheldSkills, input.candidateId, input.jdId);
+    }
+
     const after = await this.scoreGeneratedCv({
       jd: jdInput,
-      generated: rewrite.cv,
+      generated: generatedCv,
       sourceCv,
       candidateId: input.candidateId,
       userId: user.id,
@@ -178,6 +206,7 @@ export class CvVersionsService {
         targetScore: input.targetScore,
         achievedScore: after.totalScore,
         versionNumber,
+        ...(withheldSkills.length > 0 ? { withheldSkills } : {}),
       },
     });
 
@@ -396,16 +425,181 @@ export class CvVersionsService {
     return true;
   }
 
-  /** Case-insensitive equality-or-containment (min length 3 for containment). */
-  private static skillCovered(item: string, allowed: Set<string>): boolean {
-    const it = CvVersionsService.norm(item);
-    if (!it) return true;
-    if (allowed.has(it)) return true;
-    for (const a of allowed) {
-      if (a.length >= 3 && it.includes(a)) return true;
-      if (it.length >= 3 && a.includes(it)) return true;
+  /**
+   * Words that carry no evidential weight when matching a skill phrase:
+   * grammatical filler plus generic capability nouns. "ETL Development" makes
+   * one factual claim — ETL — and "development" merely names the activity, so
+   * only the specific term must be evidenced in the source CV. This is what
+   * lets honest re-labelling through while a claim like "Kubernetes" (whose
+   * only token is specific and absent) is still blocked.
+   */
+  private static readonly SKILL_STOPWORDS = new Set([
+    // grammatical filler
+    'and', 'or', 'the', 'of', 'for', 'with', 'in', 'on', 'to', 'a', 'an', 'at', 'by',
+    'using', 'via', 'other', 'various', 'etc', 'end', 'based', 'across', 'from',
+    // generic capability nouns (the activity, not the claim)
+    'development', 'design', 'management', 'engineering', 'administration',
+    'implementation', 'support', 'analysis', 'optimization', 'migration',
+    'integration', 'testing', 'automation', 'modeling', 'modelling',
+    'architecture', 'maintenance', 'troubleshooting', 'documentation',
+    'reporting', 'monitoring', 'governance', 'tuning', 'processing',
+    'handling', 'validation', 'routing', 'orchestration', 'provisioning',
+    'configuration', 'deployment', 'build', 'builds', 'delivery', 'practices',
+    'skills', 'tools', 'technologies', 'systems', 'solutions', 'expertise',
+  ].map((w) => CvVersionsService.stem(w)));
+
+  private static tokenize(text: string): string[] {
+    return text
+      .toLowerCase()
+      .split(/[^a-z0-9+#]+/)
+      .filter((t) => t.length > 0);
+  }
+
+  /**
+   * Light suffix stripping so different word forms of the same concept meet:
+   * "designed"/"design", "optimization"/"optimized" → "optimiz".
+   */
+  private static stem(token: string): string {
+    let stemmed = token;
+    for (const suffix of ['ations', 'ation', 'ings', 'ing', 'ments', 'ment', 'ers', 'er', 'ed', 'es', 's']) {
+      if (stemmed.length > suffix.length + 2 && stemmed.endsWith(suffix)) {
+        stemmed = stemmed.slice(0, -suffix.length);
+        break;
+      }
     }
-    return false;
+    // Collapse the y/ies split so "query" meets "queries" (→ "queri").
+    return stemmed.endsWith('y') ? `${stemmed.slice(0, -1)}i` : stemmed;
+  }
+
+  /** Stemmed vocabulary of everything the candidate demonstrably wrote/knows. */
+  private static buildTokenIndex(sourceText: string, allowed: Set<string>): Set<string> {
+    const index = new Set<string>();
+    for (const token of CvVersionsService.tokenize(sourceText)) {
+      index.add(CvVersionsService.stem(token));
+    }
+    for (const skill of allowed) {
+      for (const token of CvVersionsService.tokenize(skill)) {
+        index.add(CvVersionsService.stem(token));
+      }
+    }
+    return index;
+  }
+
+  /**
+   * A skill phrase is traceable when every meaningful word in it is evidenced
+   * somewhere in the source CV (or in a recruiter-confirmed / evidence-tiered
+   * skill). This admits honest rephrasings — "query optimization" from
+   * "optimized queries" — while still blocking additions of technologies the
+   * candidate never mentioned: "Kubernetes" has no supporting token, so it
+   * cannot slip in.
+   *
+   * Short tokens (<= 3 chars, e.g. "sql", "aws", "etl") must match exactly;
+   * longer ones match on a stem prefix.
+   */
+  private static isSkillTraceable(item: string, allowed: Set<string>, index: Set<string>): boolean {
+    const normalized = CvVersionsService.norm(item);
+    if (!normalized) return true;
+    if (allowed.has(normalized)) return true;
+
+    const covered = (phrase: string): boolean => {
+      const tokens = CvVersionsService.tokenize(phrase)
+        .map((t) => CvVersionsService.stem(t))
+        .filter((t) => !CvVersionsService.SKILL_STOPWORDS.has(t));
+      if (tokens.length === 0) return true; // pure category label, claims nothing
+      return tokens.every((token) => {
+        if (index.has(token)) return true;
+        if (token.length <= 3) return false; // acronyms must match exactly
+        for (const known of index) {
+          if (known.length >= 4 && (known.startsWith(token) || token.startsWith(known))) return true;
+        }
+        return false;
+      });
+    };
+
+    // "metadata management (STTM & Audit Lineage)": the base names the
+    // capability, the parenthetical names the source artefacts that evidence
+    // it. Either one anchoring to the CV makes the claim traceable.
+    const parenMatch = /\(([^)]*)\)/.exec(normalized);
+    const base = normalized.split('(')[0].trim() || normalized;
+    if (covered(base)) return true;
+    return parenMatch ? covered(parenMatch[1]) : false;
+  }
+
+  /** Skill entries in the generated CV with no traceable origin. */
+  private findUntraceableSkills(
+    generated: GeneratedCv,
+    allowedSkills: Set<string>,
+    sourceText: string,
+  ): string[] {
+    const index = CvVersionsService.buildTokenIndex(sourceText, allowedSkills);
+    const offenders: string[] = [];
+    for (const group of generated.skills) {
+      for (const item of group.items) {
+        if (!CvVersionsService.isSkillTraceable(item, allowedSkills, index)) {
+          offenders.push(item);
+        }
+      }
+    }
+    return offenders;
+  }
+
+  /**
+   * Remove untraceable skills from a generated CV rather than discarding the
+   * whole generation. The CV stays truthful, the recruiter is told exactly
+   * what was withheld, and each withheld skill becomes a verification item
+   * they can confirm with the candidate and then regenerate.
+   */
+  private sanitizeGeneratedSkills(
+    generated: GeneratedCv,
+    allowedSkills: Set<string>,
+    sourceText: string,
+  ): { cv: GeneratedCv; removed: string[] } {
+    const index = CvVersionsService.buildTokenIndex(sourceText, allowedSkills);
+    const removed: string[] = [];
+
+    const groups = generated.skills
+      .map((group) => {
+        const items = group.items.filter((item) => {
+          const keep = CvVersionsService.isSkillTraceable(item, allowedSkills, index);
+          if (!keep) removed.push(item);
+          return keep;
+        });
+        return { ...group, items };
+      })
+      .filter((group) => group.items.length > 0);
+
+    return { cv: { ...generated, skills: groups }, removed };
+  }
+
+  /**
+   * Record withheld skills as PROPOSED verification items so they surface in
+   * the candidate's Skill Verification card — the recruiter can confirm them
+   * in the genuineness interview (with evidence) and regenerate.
+   */
+  private async proposeWithheldSkills(
+    skills: string[],
+    candidateId: string,
+    jdId: string,
+  ): Promise<void> {
+    for (const skill of skills) {
+      const existing = await this.prisma.verifiedSkill.findFirst({
+        where: { candidateId, jdId, skill: { equals: skill, mode: 'insensitive' } },
+      });
+      if (existing) continue;
+      await this.prisma.verifiedSkill
+        .create({
+          data: {
+            candidateId,
+            jdId,
+            skill,
+            tier: 'UNVERIFIED_POSSIBLE',
+            status: 'PROPOSED',
+            evidence:
+              'Proposed by the CV generator as JD-relevant but not evidenced in the source CV — verify with the candidate before including it.',
+          },
+        })
+        .catch((err) => this.logger.warn(`Could not propose skill "${skill}": ${err.message}`));
+    }
   }
 
   /**
@@ -528,26 +722,17 @@ export class CvVersionsService {
       }
     }
 
-    // Skills: every stated skill needs a traceable origin.
-    const sourceTextNorm = sourceText.toLowerCase();
-    const offenders: string[] = [];
-    for (const group of generated.skills) {
-      for (const item of group.items) {
-        const it = norm(item);
-        if (!it) continue;
-        if (CvVersionsService.skillCovered(item, allowedSkills)) continue;
-        // Fallback: the term (or its parenthetical parts) appears verbatim in the source CV.
-        const parts = [it, ...it.split(/[()\/,]+/).map((p) => p.trim()).filter((p) => p.length >= 3)];
-        if (parts.some((p) => p.length >= 3 && sourceTextNorm.includes(p))) continue;
-        offenders.push(item);
-      }
-    }
+    // Skills: every stated skill needs a traceable origin. On generation the
+    // caller sanitizes first (untraceable skills are withheld and reported);
+    // on manual edits this rejects, so a recruiter records the evidence via
+    // the Skill Verification flow rather than typing an unbacked claim.
+    const offenders = this.findUntraceableSkills(generated, allowedSkills, sourceText);
     if (offenders.length > 0) {
       this.logger.warn(`Integrity check failed: untraceable skills [${offenders.join(', ')}]`);
       throw new UnprocessableEntityException(
-        `Generated CV contains skills with no traceable origin (${offenders
-          .slice(0, 5)
-          .join(', ')}) — verify them with the candidate first or regenerate`,
+        `These skills are not evidenced in the source CV: ${offenders.slice(0, 5).join(', ')}. ` +
+          'Confirm them with the candidate and record them under Skill Verification on the ' +
+          'candidate page, then save again.',
       );
     }
   }
