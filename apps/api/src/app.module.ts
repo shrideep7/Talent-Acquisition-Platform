@@ -10,6 +10,7 @@ import { CvVersionsModule } from './cv-versions/cv-versions.module';
 import { DocumentsModule } from './documents/documents.module';
 import { ExportModule } from './export/export.module';
 import { JdsModule } from './jds/jds.module';
+import { NaukriModule } from './naukri/naukri.module';
 import { PipelineModule } from './pipeline/pipeline.module';
 import { PrepModule } from './prep/prep.module';
 import { SettingsModule } from './settings/settings.module';
@@ -29,6 +30,7 @@ import { SourcingModule } from './sourcing/sourcing.module';
     CvVersionsModule,
     ExportModule,
     PrepModule,
+    NaukriModule,
     SkillsModule,
     PipelineModule,
     SourcingModule,

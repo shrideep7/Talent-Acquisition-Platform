@@ -1,6 +1,7 @@
 import type { MatchBreakdown } from './analysis';
 import type { CvChange, GeneratedCv, ParsedCv } from './cv';
 import type { ParsedJd } from './jd';
+import type { NaukriSearchCriteria } from './naukri';
 import type { InterviewPrep } from './prep';
 import type {
   CandidateSource,
@@ -156,6 +157,14 @@ export interface SourcingJobItemDto {
   candidateId: string | null;
   analysisId: string | null;
   totalScore: number | null;
+}
+
+export interface NaukriSearchDto {
+  criteria: NaukriSearchCriteria;
+  /** Set when the extraction ran against a saved JD (rather than pasted text). */
+  jdId: string | null;
+  jdTitle: string | null;
+  cached: boolean;
 }
 
 export interface AuditLogDto {

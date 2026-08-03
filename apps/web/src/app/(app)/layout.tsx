@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   LogOut,
   ScrollText,
+  Search,
   Settings,
   Users,
   type LucideIcon,
@@ -41,6 +42,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/analyzer', label: 'Analyzer', icon: FileSearch },
+  { href: '/naukri-search', label: 'Naukri Search', icon: Search },
   { href: '/sourcing', label: 'Sourcing', icon: FolderUp },
   { href: '/pipeline', label: 'Pipeline', icon: KanbanSquare },
   { href: '/candidates', label: 'Candidates', icon: Users },

@@ -7,6 +7,7 @@ Core capabilities:
 - **JD–CV match analysis** — deterministic, weighted scoring (skills, experience, keywords, education, ATS readiness) with an evidence-backed breakdown per criterion. LLM calls are content-hash cached, so re-running an analysis is cheap and reproducible.
 - **ATS-optimized CV generation** — rewrites a CV to target a JD while enforcing integrity guardrails: every change carries a change log entry with evidence, and anything the generator refuses to change is recorded in integrity notes. Versions are tracked with full lineage.
 - **Interview prep and genuineness screening** — generates targeted questions for the internal interview, including probes for skills the model inferred but could not verify. Recruiter-confirmed skills are recorded with evidence.
+- **Naukri Search** — extract ready-to-paste Naukri Resdex search filters from a JD (boolean keyword string, experience range, candidate locations, salary band in lakhs, plus IT skills, designations, notice period and search tips), each with one-click copy.
 - **Bulk sourcing** — upload a batch of CVs against a JD; each file is parsed (with OCR fallback for scanned PDFs), scored, and fed into the pipeline.
 - **Pipeline tracking** — per-JD candidate pipeline from `SOURCED` through `SENT_TO_CLIENT`.
 
