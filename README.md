@@ -93,7 +93,7 @@ All configuration lives in `.env` (see `.env.example`). Docker Compose reads it 
 | `ANTHROPIC_MODEL` | `claude-opus-5` | Claude model used for AI calls |
 | `ANTHROPIC_EFFORT` | `medium` | Claude reasoning effort: `low` \| `medium` \| `high` |
 | `GEMINI_API_KEY` | — | Google Gemini API key (required when using the Gemini provider) |
-| `GEMINI_MODEL` | `gemini-2.5-pro` | Gemini model — `gemini-2.5-flash` is a cheaper/faster option |
+| `GEMINI_MODEL` | auto | Optional Gemini model pin. If unset or unavailable to your key, the best available model is auto-selected and logged |
 | `S3_ENDPOINT` | `http://localhost:9000` | S3-compatible endpoint (`http://minio:9000` inside Compose) |
 | `S3_REGION` | `us-east-1` | S3 region |
 | `S3_ACCESS_KEY` | `mfd-minio` | S3 access key (also MinIO root user) |

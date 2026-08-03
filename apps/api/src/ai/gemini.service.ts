@@ -15,16 +15,22 @@ import { PromptService } from './prompt.service';
 @Injectable()
 export class GeminiService extends LlmService {
   readonly providerName = 'gemini';
-  readonly model: string;
 
   private readonly client: GoogleGenAI;
+  private readonly configuredModel: string;
+  /** Set when the configured model 404s and we auto-select an available one. */
+  private resolvedModel: string | null = null;
 
   constructor(config: ConfigService, prisma: PrismaService, promptService: PromptService) {
     super(prisma, promptService);
     this.client = new GoogleGenAI({
       apiKey: config.get<string>('GEMINI_API_KEY') ?? config.get<string>('GOOGLE_API_KEY'),
     });
-    this.model = config.get<string>('GEMINI_MODEL') ?? 'gemini-2.5-pro';
+    this.configuredModel = config.get<string>('GEMINI_MODEL') ?? 'gemini-2.5-pro';
+  }
+
+  get model(): string {
+    return this.resolvedModel ?? this.configuredModel;
   }
 
   protected async invokeModel<T>(
@@ -38,8 +44,7 @@ export class GeminiService extends LlmService {
     let feedback = '';
     let lastError = 'unknown validation error';
     for (let attempt = 0; attempt < 2; attempt++) {
-      const response = await this.client.models.generateContent({
-        model: this.model,
+      const response = await this.generateWithModelFallback({
         contents: feedback ? `${userContent}\n\n${feedback}` : userContent,
         config: {
           systemInstruction: systemPrompt,
@@ -101,5 +106,77 @@ export class GeminiService extends LlmService {
     const trimmed = text.trim();
     const match = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
     return match ? match[1] : trimmed;
+  }
+
+  /**
+   * Call generateContent with the current model; when Google reports the
+   * model as unavailable/retired for this API key (404), auto-select the best
+   * generateContent-capable Gemini model the key can access and retry once.
+   */
+  private async generateWithModelFallback(params: {
+    contents: string;
+    config: Record<string, unknown>;
+  }): Promise<Awaited<ReturnType<GoogleGenAI['models']['generateContent']>>> {
+    try {
+      return await this.client.models.generateContent({ model: this.model, ...params });
+    } catch (err) {
+      if (this.resolvedModel || !this.isModelUnavailable(err)) throw err;
+      const picked = await this.pickAvailableModel();
+      if (!picked) throw err;
+      this.resolvedModel = picked;
+      this.logger.warn(
+        `Configured Gemini model "${this.configuredModel}" is not available to this API key — ` +
+          `auto-selected "${picked}". Pin it explicitly with GEMINI_MODEL to silence this.`,
+      );
+      return this.client.models.generateContent({ model: this.model, ...params });
+    }
+  }
+
+  private isModelUnavailable(err: unknown): boolean {
+    const message = (err as Error)?.message ?? '';
+    const status = (err as { status?: number }).status;
+    return (
+      status === 404 ||
+      /NOT_FOUND|no longer available|not found for API version|is not supported/i.test(message)
+    );
+  }
+
+  /**
+   * Rank the models this key can call: prefer higher Gemini versions, "pro"
+   * over "flash", and stable ids over preview/experimental ones. "-latest"
+   * aliases rank just below an explicit stable id of the newest line.
+   */
+  private async pickAvailableModel(): Promise<string | null> {
+    try {
+      const names: string[] = [];
+      const pager = await this.client.models.list();
+      for await (const m of pager) {
+        const name = (m.name ?? '').replace(/^models\//, '');
+        const actions: string[] = (m as { supportedActions?: string[] }).supportedActions ?? [];
+        if (!name.startsWith('gemini-')) continue;
+        if (/embedding|tts|image|audio|live|native|computer|robotics|nano/i.test(name)) continue;
+        if (actions.length > 0 && !actions.includes('generateContent')) continue;
+        names.push(name);
+      }
+      if (names.length === 0) return null;
+
+      const score = (name: string): number => {
+        let s = 0;
+        const version = /gemini-(\d+(?:\.\d+)?)/.exec(name);
+        if (version) s += parseFloat(version[1]) * 1000;
+        if (/latest/.test(name)) s += 2500; // alias tracking the newest line
+        if (/-pro/.test(name)) s += 100;
+        else if (/-flash(?!-lite)/.test(name)) s += 50;
+        if (!/preview|exp/i.test(name)) s += 200;
+        s -= Math.min(name.length, 60) / 100; // tie-break: shorter/stable ids first
+        return s;
+      };
+      names.sort((a, b) => score(b) - score(a));
+      this.logger.log(`Gemini models available to this key (ranked): ${names.slice(0, 5).join(', ')}`);
+      return names[0];
+    } catch (err) {
+      this.logger.error(`Could not list Gemini models: ${(err as Error).message}`);
+      return null;
+    }
   }
 }
