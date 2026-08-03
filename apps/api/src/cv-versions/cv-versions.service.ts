@@ -145,13 +145,21 @@ export class CvVersionsService {
     // Skills the model could not trace to the source CV are withheld rather
     // than failing the whole generation; the recruiter sees what was held
     // back and can verify it with the candidate, then regenerate.
-    const { cv: generatedCv, removed: withheldSkills } = this.sanitizeGeneratedSkills(
+    const { cv: sanitizedCv, removed: withheldSkills } = this.sanitizeGeneratedSkills(
       rewrite.cv,
       allowedSkills,
       cvDocument.parsedText,
     );
-    // Employment history, dates, education and certifications remain hard
-    // failures — those are factual claims, not phrasing.
+    // Personal details, education and certifications are never the
+    // generator's to touch — they are copied through from the source CV
+    // verbatim, so any drift (reworded institution, reformatted year) is
+    // corrected instead of failing the generation.
+    const { cv: generatedCv, restoredSections } = this.restoreFactualSections(
+      sanitizedCv,
+      sourceCv,
+    );
+    // Employment history and dates remain hard failures — those sections are
+    // rewritten (bullets), so they can't be blanket-restored, only verified.
     this.assertIntegrity(generatedCv, sourceCv, allowedSkills, cvDocument.parsedText);
 
     const integrityNotes = [
@@ -161,6 +169,11 @@ export class CvVersionsService {
           `Withheld "${skill}" from the Skills section — no supporting evidence in the source CV. ` +
           'Confirm it with the candidate in the genuineness interview (Skill Verification on the ' +
           'candidate page), then regenerate to include it.',
+      ),
+      ...restoredSections.map(
+        (section) =>
+          `The generator altered ${section}; the original CV's values were kept — ` +
+          'personal details, education and certifications are always copied through unchanged.',
       ),
     ];
 
@@ -600,6 +613,67 @@ export class CvVersionsService {
         })
         .catch((err) => this.logger.warn(`Could not propose skill "${skill}": ${err.message}`));
     }
+  }
+
+  /**
+   * Personal details, education and certifications are identity facts, not
+   * optimizable content — the generated CV always carries the source CV's
+   * values for them, verbatim and in source order. Returns which sections
+   * the generator had drifted on, so the recruiter sees an integrity note
+   * instead of a failed generation.
+   */
+  private restoreFactualSections(
+    generated: GeneratedCv,
+    source: ParsedCv,
+  ): { cv: GeneratedCv; restoredSections: string[] } {
+    const norm = CvVersionsService.norm;
+    const restoredSections: string[] = [];
+
+    const personalUnchanged =
+      norm(generated.fullName) === norm(source.fullName) &&
+      norm(generated.contact.email) === norm(source.email) &&
+      norm(generated.contact.phone) === norm(source.phone) &&
+      norm(generated.contact.location) === norm(source.location);
+    if (!personalUnchanged) restoredSections.push('personal details (name/contact)');
+
+    const educationUnchanged =
+      generated.education.length === source.education.length &&
+      generated.education.every(
+        (e, i) =>
+          norm(e.degree) === norm(source.education[i].degree) &&
+          norm(e.institution) === norm(source.education[i].institution) &&
+          norm(e.year) === norm(source.education[i].year),
+      );
+    if (!educationUnchanged) restoredSections.push('education entries');
+
+    const certificationsUnchanged =
+      generated.certifications.length === source.certifications.length &&
+      generated.certifications.every(
+        (c, i) =>
+          norm(c.name) === norm(source.certifications[i].name) &&
+          norm(c.issuer) === norm(source.certifications[i].issuer) &&
+          norm(c.year) === norm(source.certifications[i].year),
+      );
+    if (!certificationsUnchanged) restoredSections.push('certification entries');
+
+    return {
+      cv: {
+        ...generated,
+        fullName: source.fullName,
+        contact: { email: source.email, phone: source.phone, location: source.location },
+        education: source.education.map((e) => ({
+          degree: e.degree,
+          institution: e.institution,
+          year: e.year,
+        })),
+        certifications: source.certifications.map((c) => ({
+          name: c.name,
+          issuer: c.issuer,
+          year: c.year,
+        })),
+      },
+      restoredSections,
+    };
   }
 
   /**
