@@ -397,8 +397,11 @@ function ConversationDialog({
   });
 
   const copyFormLink = async () => {
-    if (!conv?.formToken) return;
-    const link = `${window.location.origin}/prescreen/${conv.formToken}`;
+    // Prefer the exact link the candidate received (may be a Google Form).
+    const link =
+      conv?.formUrl ??
+      (conv?.formToken ? `${window.location.origin}/prescreen/${conv.formToken}` : null);
+    if (!link) return;
     try {
       await navigator.clipboard.writeText(link);
       toast.success('Form link copied');
@@ -466,7 +469,7 @@ function ConversationDialog({
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setReplyOpen((v) => !v)}>
                   <ClipboardPaste className="h-3.5 w-3.5" />
-                  Record email reply…
+                  Record response…
                 </Button>
               </div>
               {replyOpen && (
@@ -475,7 +478,7 @@ function ConversationDialog({
                     value={replyText}
                     onChange={(e) => setReplyText(e.target.value)}
                     rows={5}
-                    placeholder="Paste the candidate's email reply here — it will be parsed against the questions"
+                    placeholder="Paste the candidate's email reply or their Google Form responses (copy the row from the linked Sheet) — it will be parsed against the questions"
                     className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                   />
                   <Button

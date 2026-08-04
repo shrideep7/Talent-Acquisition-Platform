@@ -50,6 +50,8 @@ interface ConversationMeta {
   candidateQuestions?: string[];
   flow?: FlowContext;
   transportError?: string;
+  /** Email channel: the exact answer link the candidate received. */
+  formUrl?: string;
 }
 
 @Injectable()
@@ -628,6 +630,7 @@ export class WhatsappScreeningService {
       status: row.status,
       channel: row.channel,
       formToken: row.formToken,
+      formUrl: ((row.meta as unknown as ConversationMeta) ?? {}).formUrl ?? null,
       currentStepKey: row.currentStepKey,
       steps: (row.steps as unknown as ScreeningStep[]) ?? [],
       answers: (row.answers as unknown as ScreeningAnswer[]) ?? [],

@@ -122,10 +122,12 @@ To send real email:
 
 1. In the AWS SES console, verify your domain (e.g. `metafordata.com`) and make sure the sending identity (`hiring@metafordata.com`) is covered by it. If the account is still in the SES **sandbox**, request production access first — sandbox accounts can only send to verified addresses.
 2. Create SMTP credentials (SES console → SMTP settings → Create SMTP credentials) and set in `.env`: `SES_SMTP_HOST` (e.g. `email-smtp.ap-south-1.amazonaws.com` for Mumbai), `SES_SMTP_PORT=587`, `SES_SMTP_USER`, `SES_SMTP_PASS`, `MAIL_FROM=hiring@metafordata.com`.
-3. Set `WEB_PUBLIC_URL` to the web app's public URL — it is embedded in emails as the answer-form link, so it must be reachable by candidates (not `localhost`).
+3. Choose the answer form the email links to:
+   - **External form (recommended while the app runs on localhost):** create a Google Form mirroring the pre-screen questions (link its responses to a Sheet) and set `PRESCREEN_FORM_URL` to the form's share link. Every pre-screening email then links there.
+   - **Built-in form:** leave `PRESCREEN_FORM_URL` empty and set `WEB_PUBLIC_URL` to the web app's candidate-reachable public URL (not `localhost`) — emails link to the tokenized `/prescreen/<token>` page and answers complete the conversation automatically.
 4. Recommended for deliverability: publish SPF, DKIM (SES provides the CNAME records) and a DMARC policy for the domain.
 
-Candidate answers flow back two ways: the **form link** (structured, lands automatically) or a plain **email reply** to `hiring@metafordata.com` — open the conversation and use *Record email reply* to parse it. Reply text is interpreted by the LLM against the question list; nothing is auto-sent back to the candidate.
+Candidate answers flow back three ways: the **built-in form** (structured, completes the conversation automatically), a **Google Form** (open the conversation, click *Record response…*, paste the response row from the linked Sheet), or a plain **email reply** (paste it the same way). Pasted text is interpreted by the LLM against the question list; nothing is auto-sent back to the candidate.
 
 ## WhatsApp pre-screening setup
 
