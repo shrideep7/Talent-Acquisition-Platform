@@ -13,10 +13,32 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { CANDIDATE_SOURCES, CONSENT_STATUSES, PIPELINE_STAGES } from '@mfd/shared';
+import type { CandidateSource, ConsentStatus, PipelineStage } from '@mfd/shared';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { CandidatesService } from './candidates.service';
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
+
+/** Repeatable query params arrive as string | string[] — normalize to array. */
+function toArray(value: string | string[] | undefined): string[] {
+  if (value === undefined) return [];
+  return (Array.isArray(value) ? value : [value]).map((v) => v.trim()).filter(Boolean);
+}
+
+function toEnumArray<T extends string>(
+  value: string | string[] | undefined,
+  allowed: readonly T[],
+): T[] {
+  const set = new Set<string>(allowed);
+  return toArray(value).filter((v): v is T => set.has(v));
+}
+
+function toNumber(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === '') return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
 
 class CreateCandidateDto {
   /** Optional recruiter-supplied name override for the parsed CV name. */
@@ -75,9 +97,41 @@ export class CandidatesController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List candidates (non-deleted), optional ?search= on full name' })
-  list(@Query('search') search?: string) {
-    return this.candidatesService.list(search);
+  @ApiOperation({
+    summary:
+      'List candidates with segmentation filters: ?search= (name/title), repeatable ?skills= with ?skillMode=any|all, repeatable ?locations=/?sources=/?consent=/?stages=, ?minExperience=/?maxExperience=',
+  })
+  list(
+    @Query('search') search?: string,
+    @Query('skills') skills?: string | string[],
+    @Query('skillMode') skillMode?: string,
+    @Query('locations') locations?: string | string[],
+    @Query('sources') sources?: string | string[],
+    @Query('consent') consent?: string | string[],
+    @Query('stages') stages?: string | string[],
+    @Query('minExperience') minExperience?: string,
+    @Query('maxExperience') maxExperience?: string,
+  ) {
+    return this.candidatesService.list({
+      search,
+      skills: toArray(skills),
+      skillMode: skillMode === 'all' ? 'all' : 'any',
+      locations: toArray(locations),
+      sources: toEnumArray<CandidateSource>(sources, CANDIDATE_SOURCES),
+      consentStatuses: toEnumArray<ConsentStatus>(consent, CONSENT_STATUSES),
+      stages: toEnumArray<PipelineStage>(stages, PIPELINE_STAGES),
+      minExperience: toNumber(minExperience),
+      maxExperience: toNumber(maxExperience),
+    });
+  }
+
+  @Get('facets')
+  @ApiOperation({
+    summary:
+      'Filter options for the candidate list with counts: skills, locations, sources, consent statuses, pipeline stages, experience range',
+  })
+  facets() {
+    return this.candidatesService.facets();
   }
 
   @Get(':id')

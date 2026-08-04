@@ -1,7 +1,16 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import type { Candidate, CvDocument } from '@prisma/client';
+import type { Candidate, CvDocument, Prisma } from '@prisma/client';
 import { ParsedCvSchema } from '@mfd/shared';
-import type { CandidateDto, CandidateSource, CvDocumentDto, ParsedCv } from '@mfd/shared';
+import type {
+  CandidateDto,
+  CandidateFacetsDto,
+  CandidateSource,
+  ConsentStatus,
+  CvDocumentDto,
+  FacetCount,
+  ParsedCv,
+  PipelineStage,
+} from '@mfd/shared';
 import { LlmService } from '../ai/llm.service';
 import { AuditService } from '../common/audit.service';
 import type { AuthUser } from '../common/decorators';
@@ -44,6 +53,53 @@ type CvDocumentSummary = {
   ocrUsed: boolean;
   createdAt: Date;
 };
+
+/** Case-insensitive value counter that displays each value's most frequent spelling. */
+class FacetCounter {
+  private readonly counts = new Map<string, { count: number; variants: Map<string, number> }>();
+
+  add(value: string): void {
+    const key = value.toLowerCase();
+    const entry = this.counts.get(key) ?? { count: 0, variants: new Map<string, number>() };
+    entry.count += 1;
+    entry.variants.set(value, (entry.variants.get(value) ?? 0) + 1);
+    this.counts.set(key, entry);
+  }
+
+  toSorted(limit: number): FacetCount[] {
+    return [...this.counts.values()]
+      .map((entry) => {
+        let display = '';
+        let best = 0;
+        for (const [variant, n] of entry.variants) {
+          if (n > best) {
+            best = n;
+            display = variant;
+          }
+        }
+        return { value: display, count: entry.count };
+      })
+      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+      .slice(0, limit);
+  }
+}
+
+/** Segmentation filters for the candidate list. All optional; combined with AND. */
+export interface CandidateListFilters {
+  /** Substring match on full name or current title. */
+  search?: string;
+  /** Skill names (exact, case-insensitive — the UI picks them from facets). */
+  skills?: string[];
+  /** 'any' = at least one selected skill; 'all' = every selected skill. */
+  skillMode?: 'any' | 'all';
+  locations?: string[];
+  sources?: CandidateSource[];
+  consentStatuses?: ConsentStatus[];
+  /** Candidate occupies at least one of these pipeline stages (any JD). */
+  stages?: PipelineStage[];
+  minExperience?: number;
+  maxExperience?: number;
+}
 
 @Injectable()
 export class CandidatesService {
@@ -193,14 +249,42 @@ export class CandidatesService {
     return { candidate, cvDocument, parsedCv };
   }
 
-  async list(search?: string): Promise<CandidateDto[]> {
+  async list(filters: CandidateListFilters = {}): Promise<CandidateDto[]> {
+    // Everything that lives on the candidate row filters in SQL; skills and
+    // pipeline stages come from related JSON/rows and filter in memory below.
+    const and: Prisma.CandidateWhereInput[] = [{ deletedAt: null }];
+
+    const search = filters.search?.trim();
+    if (search) {
+      and.push({
+        OR: [
+          { fullName: { contains: search, mode: 'insensitive' } },
+          { currentTitle: { contains: search, mode: 'insensitive' } },
+        ],
+      });
+    }
+    if (filters.sources?.length) and.push({ source: { in: filters.sources } });
+    if (filters.consentStatuses?.length) {
+      and.push({ consentStatus: { in: filters.consentStatuses } });
+    }
+    if (filters.locations?.length) {
+      and.push({
+        OR: filters.locations.map((loc) => ({
+          currentLocation: { equals: loc, mode: 'insensitive' as const },
+        })),
+      });
+    }
+    if (filters.minExperience !== undefined || filters.maxExperience !== undefined) {
+      and.push({
+        totalYearsExperience: {
+          ...(filters.minExperience !== undefined ? { gte: filters.minExperience } : {}),
+          ...(filters.maxExperience !== undefined ? { lte: filters.maxExperience } : {}),
+        },
+      });
+    }
+
     const candidates = await this.prisma.candidate.findMany({
-      where: {
-        deletedAt: null,
-        ...(search && search.trim().length > 0
-          ? { fullName: { contains: search.trim(), mode: 'insensitive' as const } }
-          : {}),
-      },
+      where: { AND: and },
       orderBy: { createdAt: 'desc' },
       include: {
         cvDocuments: {
@@ -212,13 +296,117 @@ export class CandidatesService {
             mimeType: true,
             ocrUsed: true,
             createdAt: true,
+            parsedCv: true,
           },
         },
+        pipelineEntries: { select: { stage: true } },
       },
     });
-    return candidates.map((c) =>
-      this.toDto(c, c.cvDocuments.map((d) => this.toCvDocumentSummaryDto(d))),
-    );
+
+    const wantedSkills = (filters.skills ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const wantedStages = new Set(filters.stages ?? []);
+
+    const result: CandidateDto[] = [];
+    for (const c of candidates) {
+      const latestParsed = c.cvDocuments.find((d) => d.parsedCv !== null)?.parsedCv;
+      const skills = latestParsed
+        ? this.extractSkills(latestParsed as unknown as ParsedCv)
+        : [];
+      const stages = [...new Set(c.pipelineEntries.map((e) => e.stage))] as PipelineStage[];
+
+      if (wantedSkills.length > 0) {
+        const have = new Set(skills.map((s) => s.toLowerCase()));
+        const match =
+          filters.skillMode === 'all'
+            ? wantedSkills.every((s) => have.has(s))
+            : wantedSkills.some((s) => have.has(s));
+        if (!match) continue;
+      }
+      if (wantedStages.size > 0 && !stages.some((s) => wantedStages.has(s))) continue;
+
+      result.push(
+        this.toDto(c, c.cvDocuments.map((d) => this.toCvDocumentSummaryDto(d)), {
+          skills,
+          pipelineStages: stages,
+        }),
+      );
+    }
+    return result;
+  }
+
+  /**
+   * Filter options with counts over the whole (non-deleted) pool. Values are
+   * grouped case-insensitively; the most frequent spelling is displayed.
+   */
+  async facets(): Promise<CandidateFacetsDto> {
+    const candidates = await this.prisma.candidate.findMany({
+      where: { deletedAt: null },
+      select: {
+        currentLocation: true,
+        source: true,
+        consentStatus: true,
+        totalYearsExperience: true,
+        cvDocuments: {
+          orderBy: { createdAt: 'desc' },
+          select: { parsedCv: true },
+        },
+        pipelineEntries: { select: { stage: true } },
+      },
+    });
+
+    const skills = new FacetCounter();
+    const locations = new FacetCounter();
+    const sources = new FacetCounter();
+    const consentStatuses = new FacetCounter();
+    const stages = new FacetCounter();
+    let minExp: number | null = null;
+    let maxExp: number | null = null;
+
+    for (const c of candidates) {
+      const latestParsed = c.cvDocuments.find((d) => d.parsedCv !== null)?.parsedCv;
+      if (latestParsed) {
+        for (const skill of this.extractSkills(latestParsed as unknown as ParsedCv)) {
+          skills.add(skill);
+        }
+      }
+      if (c.currentLocation) locations.add(c.currentLocation);
+      sources.add(c.source);
+      consentStatuses.add(c.consentStatus);
+      for (const stage of new Set(c.pipelineEntries.map((e) => e.stage))) stages.add(stage);
+      if (c.totalYearsExperience !== null) {
+        minExp = minExp === null ? c.totalYearsExperience : Math.min(minExp, c.totalYearsExperience);
+        maxExp = maxExp === null ? c.totalYearsExperience : Math.max(maxExp, c.totalYearsExperience);
+      }
+    }
+
+    return {
+      total: candidates.length,
+      skills: skills.toSorted(200),
+      locations: locations.toSorted(100),
+      sources: sources.toSorted(10),
+      consentStatuses: consentStatuses.toSorted(10),
+      stages: stages.toSorted(10),
+      experience: { min: minExp, max: maxExp },
+    };
+  }
+
+  /**
+   * Distinct skills evidenced by a parsed CV: the skills section plus the
+   * technologies listed on roles and projects. Case-insensitive dedupe,
+   * first-seen spelling wins.
+   */
+  private extractSkills(parsedCv: ParsedCv): string[] {
+    const seen = new Map<string, string>();
+    const add = (raw: string | null | undefined) => {
+      const value = (raw ?? '').trim();
+      if (!value) return;
+      const key = value.toLowerCase();
+      if (!seen.has(key)) seen.set(key, value);
+    };
+    for (const s of parsedCv.skills) add(s.name);
+    for (const r of parsedCv.roles) for (const t of r.technologies) add(t);
+    for (const p of parsedCv.projects) for (const t of p.technologies) add(t);
+    return [...seen.values()];
   }
 
   async detail(id: string): Promise<CandidateDto> {
@@ -308,7 +496,11 @@ export class CandidatesService {
     return { text: doc.parsedText };
   }
 
-  toDto(candidate: Candidate, cvDocuments?: CvDocumentDto[]): CandidateDto {
+  toDto(
+    candidate: Candidate,
+    cvDocuments?: CvDocumentDto[],
+    extras?: { skills?: string[]; pipelineStages?: PipelineStage[] },
+  ): CandidateDto {
     return {
       id: candidate.id,
       fullName: candidate.fullName,
@@ -324,6 +516,8 @@ export class CandidatesService {
       createdAt: candidate.createdAt.toISOString(),
       updatedAt: candidate.updatedAt.toISOString(),
       cvDocuments,
+      ...(extras?.skills ? { skills: extras.skills } : {}),
+      ...(extras?.pipelineStages ? { pipelineStages: extras.pipelineStages } : {}),
     };
   }
 

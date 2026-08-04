@@ -58,6 +58,27 @@ export interface CandidateDto {
   createdAt: string;
   updatedAt: string;
   cvDocuments?: CvDocumentDto[];
+  /** Distinct skills from the latest parsed CV (skills section + role/project technologies). */
+  skills?: string[];
+  /** Distinct pipeline stages this candidate currently occupies (across JDs). */
+  pipelineStages?: PipelineStage[];
+}
+
+/** One filterable value with how many candidates carry it. */
+export interface FacetCount {
+  value: string;
+  count: number;
+}
+
+/** Filter options for the candidate list, computed over all non-deleted candidates. */
+export interface CandidateFacetsDto {
+  total: number;
+  skills: FacetCount[];
+  locations: FacetCount[];
+  sources: FacetCount[];
+  consentStatuses: FacetCount[];
+  stages: FacetCount[];
+  experience: { min: number | null; max: number | null };
 }
 
 export interface CvDocumentDto {
