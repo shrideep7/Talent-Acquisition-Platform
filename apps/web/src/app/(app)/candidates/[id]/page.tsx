@@ -13,6 +13,7 @@ import { CvDocumentsCard } from '@/components/candidates/cv-documents-card';
 import { DeleteCandidateDialog } from '@/components/candidates/delete-candidate-dialog';
 import { MatchHistoryCard } from '@/components/candidates/match-history-card';
 import { SkillsBoard } from '@/components/candidates/skills-board';
+import { WhatsappPrescreenCard } from '@/components/candidates/whatsapp-prescreen-card';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -172,6 +173,7 @@ export default function CandidateDetailPage() {
 
         {/* Right column */}
         <div className="space-y-6 lg:col-span-2">
+          <WhatsappPrescreenCard candidate={candidate} isViewer={isViewer} />
           <CvDocumentsCard candidateId={candidate.id} documents={documents} />
           <SkillsBoard candidateId={candidate.id} isViewer={isViewer} />
           <MatchHistoryCard candidateId={candidate.id} />

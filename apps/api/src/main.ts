@@ -14,7 +14,16 @@ async function bootstrap() {
     ).split(','),
     credentials: true,
   });
-  app.use(json({ limit: '5mb' }));
+  app.use(
+    json({
+      limit: '5mb',
+      // Keep the raw bytes so webhook signatures (X-Hub-Signature-256) can be
+      // verified against exactly what the sender signed.
+      verify: (req, _res, buf) => {
+        (req as { rawBody?: Buffer }).rawBody = buf;
+      },
+    }),
+  );
   app.use(urlencoded({ extended: true, limit: '5mb' }));
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidUnknownValues: false }),

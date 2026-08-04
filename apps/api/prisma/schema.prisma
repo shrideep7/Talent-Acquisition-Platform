@@ -72,6 +72,17 @@ enum SourcingItemStatus {
   FAILED
 }
 
+enum ScreeningConversationStatus {
+  INVITED
+  IN_PROGRESS
+  COMPLETED
+  DECLINED
+  OPTED_OUT
+  NEEDS_HUMAN
+  EXPIRED
+  CANCELLED
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -88,6 +99,7 @@ model User {
   cvVersions     CvVersion[]
   auditLogs      AuditLog[]
   verifiedSkills VerifiedSkill[] @relation("VerifiedBy")
+  screeningConversations ScreeningConversation[]
 
   @@map("users")
 }
@@ -113,6 +125,7 @@ model Jd {
   pipelineEntries PipelineEntry[]
   sourcingJobs   SourcingJob[]
   verifiedSkills VerifiedSkill[]
+  screeningConversations ScreeningConversation[]
 
   @@map("jds")
 }
@@ -147,6 +160,7 @@ model Candidate {
   interviewPreps  InterviewPrep[]
   pipelineEntries PipelineEntry[]
   verifiedSkills  VerifiedSkill[]
+  screeningConversations ScreeningConversation[]
 
   @@map("candidates")
 }
@@ -280,6 +294,42 @@ model PipelineEntry {
 
   @@unique([jdId, candidateId])
   @@map("pipeline_entries")
+}
+
+model ScreeningConversation {
+  id          String                      @id @default(uuid())
+  candidateId String
+  candidate   Candidate                   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  jdId        String
+  jd          Jd                          @relation(fields: [jdId], references: [id], onDelete: Cascade)
+  status      ScreeningConversationStatus @default(INVITED)
+  /// AES-256-GCM encrypted E.164 phone this conversation runs on
+  phone       String
+  /// sha256 of the normalized phone — routes inbound webhook messages
+  phoneHash   String
+  currentStepKey String?
+  /// ScreeningStep[] — the question flow, snapshotted with the exact text sent
+  steps       Json
+  /// ScreeningAnswer[]
+  answers     Json     @default("[]")
+  /// ScreeningMessage[] — full in/out message log
+  transcript  Json     @default("[]")
+  /// Conversation-level extras, e.g. { candidateQuestions: string[] }
+  meta        Json     @default("{}")
+  /// PreCallBrief once the flow reaches a terminal state
+  brief       Json?
+  consentCaptured Boolean @default(false)
+  /// Consecutive unparseable replies on the current step
+  retryCount  Int      @default(0)
+  lastInboundAt DateTime?
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([candidateId])
+  @@index([phoneHash, status])
+  @@map("screening_conversations")
 }
 
 model SourcingJob {

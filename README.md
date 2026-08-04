@@ -8,6 +8,7 @@ Core capabilities:
 - **ATS-optimized CV generation** — rewrites a CV to target a JD while enforcing integrity guardrails: every change carries a change log entry with evidence, and anything the generator refuses to change is recorded in integrity notes. Versions are tracked with full lineage.
 - **Interview prep and genuineness screening** — generates targeted questions for the internal interview, including probes for skills the model inferred but could not verify. Recruiter-confirmed skills are recorded with evidence. Includes an HR screening-call deck: first-call verification questions over the candidate's experience, skills and projects that a non-technical recruiter can ask and judge (genuine-answer cues, red flags, follow-ups, logistics checklist, verdict guidance).
 - **Naukri Search** — extract ready-to-paste Naukri Resdex search filters from a JD (boolean keyword string, experience range, candidate locations, salary band in lakhs, plus IT skills, designations, notice period and search tips), each with one-click copy.
+- **WhatsApp pre-screening** — a bot runs the pre-call conversation on WhatsApp: consent, interest check, logistics (notice period, current/expected CTC, location, offers in hand), current-role claim confirmation, and booking the human screening call. Questions are deterministic templates; the LLM only interprets replies (with a no-AI heuristic fallback). Produces a pre-call brief with flags, auto-fills the candidate record, and advances the pipeline. Ships with a **simulated mode** so the flow can be tested in-app before Meta business verification.
 - **Bulk sourcing** — upload a batch of CVs against a JD; each file is parsed (with OCR fallback for scanned PDFs), scored, and fed into the pipeline.
 - **Pipeline tracking** — per-JD candidate pipeline from `SOURCED` through `SENT_TO_CLIENT`.
 
@@ -111,6 +112,19 @@ All configuration lives in `.env` (see `.env.example`). Docker Compose reads it 
 | `NEXT_PUBLIC_API_URL` | `http://localhost:4000/api/v1` | API base URL baked into the web build (must be browser-reachable) |
 
 Scoring weights must sum to 100. Defaults can be overridden per deployment via env, and admins can adjust them at runtime through app settings.
+
+## WhatsApp pre-screening setup
+
+Out of the box the feature runs in **simulated mode** (`WHATSAPP_MODE=simulated`): no WhatsApp account is needed, and the conversation can be exercised end-to-end from the candidate page (a "Simulator" input plays the candidate). Use this to tune the flow and train the team.
+
+To go live on real WhatsApp (`WHATSAPP_MODE=meta`):
+
+1. **Meta setup** — create a Meta Business account and verify the business, create an app at developers.facebook.com with the WhatsApp product, and register a dedicated business phone number (do not use a number already bound to a WhatsApp account). This yields `WHATSAPP_PHONE_NUMBER_ID` and a permanent `WHATSAPP_ACCESS_TOKEN` (create a system user token — the default token expires in 24h).
+2. **Webhook** — the API must be reachable over public HTTPS. In the app's WhatsApp configuration, set the callback URL to `https://<your-host>/api/v1/whatsapp/webhook`, enter the same random string you put in `WHATSAPP_VERIFY_TOKEN`, and subscribe to the `messages` field. Set `WHATSAPP_APP_SECRET` (app settings → basic) so webhook payload signatures are verified.
+3. **Invite template** — business-initiated messages require a pre-approved template. Create one (category: UTILITY) whose body takes three parameters — `{{1}}` candidate first name, `{{2}}` role title, `{{3}}` client name — including the consent line and YES/STOP instructions, and put its name in `WHATSAPP_TEMPLATE_INVITE`. Approval usually takes minutes to a day.
+4. Restart with `WHATSAPP_MODE=meta`. Candidate replies arrive via the webhook; everything else works exactly as in simulated mode.
+
+Compliance notes: the invite carries the DPDP consent language (a YES records consent on the candidate), STOP is honored instantly at any point, all messages are logged on the conversation record, and candidate erasure cascades to conversations and purges linked AI-cache entries.
 
 ## Skill integrity model
 
