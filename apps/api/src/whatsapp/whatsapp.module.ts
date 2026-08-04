@@ -23,5 +23,7 @@ import { WhatsappWebhookController } from './whatsapp-webhook.controller';
       inject: [ConfigService],
     },
   ],
+  // The email pre-screen channel reuses the interpretation/brief pipeline.
+  exports: [WhatsappScreeningService],
 })
 export class WhatsappModule {}

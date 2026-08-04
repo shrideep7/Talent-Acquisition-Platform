@@ -6,6 +6,9 @@ import { z } from 'zod';
  * text — questions are templated, and the LLM only interprets replies.
  */
 
+export const PRESCREEN_CHANNELS = ['WHATSAPP', 'EMAIL'] as const;
+export type PrescreenChannel = (typeof PRESCREEN_CHANNELS)[number];
+
 export const SCREENING_CONVERSATION_STATUSES = [
   'INVITED', // invite sent, waiting for the candidate's first reply
   'IN_PROGRESS', // consent given, walking through the questions
@@ -75,6 +78,9 @@ export interface ScreeningConversationDto {
   jdId: string;
   jdTitle?: string;
   status: ScreeningConversationStatus;
+  channel: PrescreenChannel;
+  /** Public response-form token (email channel) — form URL is /prescreen/<token>. */
+  formToken: string | null;
   currentStepKey: string | null;
   steps: ScreeningStep[];
   answers: ScreeningAnswer[];
@@ -122,3 +128,40 @@ export const WaReplyInterpretationSchema = z.object({
     ),
 });
 export type WaReplyInterpretation = z.infer<typeof WaReplyInterpretationSchema>;
+
+/**
+ * Parsing a full email reply against the whole question list in one pass
+ * (the email channel's equivalent of per-message interpretation).
+ */
+export const EmailReplyParseSchema = z.object({
+  answers: z
+    .array(
+      z.object({
+        stepKey: z.string().describe('Key of the question this fragment answers'),
+        value: z.string().nullable().describe('Normalized short answer'),
+        numberValue: z
+          .number()
+          .nullable()
+          .describe('Notice period in DAYS / CTC in LAKHS per annum / offer COUNT, per the step'),
+        yesNo: z.boolean().nullable().describe('For yes/no questions'),
+        flag: z
+          .string()
+          .nullable()
+          .describe('Recruiter-facing note: contradiction, hedge, or condition. Null when clean.'),
+      }),
+    )
+    .describe('One entry per question the reply actually answers — omit unanswered questions'),
+  candidateQuestions: z
+    .array(z.string())
+    .describe('Questions the candidate asked back in their reply'),
+});
+export type EmailReplyParse = z.infer<typeof EmailReplyParseSchema>;
+
+/** Public shape served to the candidate-facing response form (no auth). */
+export interface PrescreenFormDto {
+  candidateFirstName: string;
+  jdTitle: string;
+  clientName: string | null;
+  status: ScreeningConversationStatus;
+  questions: { key: string; kind: 'yes_no' | 'free_text'; question: string }[];
+}

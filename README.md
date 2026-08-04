@@ -9,6 +9,7 @@ Core capabilities:
 - **Interview prep and genuineness screening** — generates targeted questions for the internal interview, including probes for skills the model inferred but could not verify. Recruiter-confirmed skills are recorded with evidence. Includes an HR screening-call deck: first-call verification questions over the candidate's experience, skills and projects that a non-technical recruiter can ask and judge (genuine-answer cues, red flags, follow-ups, logistics checklist, verdict guidance).
 - **Naukri Search** — extract ready-to-paste Naukri Resdex search filters from a JD (boolean keyword string, experience range, candidate locations, salary band in lakhs, plus IT skills, designations, notice period and search tips), each with one-click copy.
 - **WhatsApp pre-screening** — a bot runs the pre-call conversation on WhatsApp: consent, interest check, logistics (notice period, current/expected CTC, location, offers in hand), current-role claim confirmation, and booking the human screening call. Questions are deterministic templates; the LLM only interprets replies (with a no-AI heuristic fallback). Produces a pre-call brief with flags, auto-fills the candidate record, and advances the pipeline. Ships with a **simulated mode** so the flow can be tested in-app before Meta business verification.
+- **Email pre-screening** — the same question flow over email (AWS SES SMTP, e.g. from `hiring@metafordata.com`): one concise email with a secure answer-form link plus the questions inline. Form submissions become the pre-call brief automatically; candidates who reply by email instead are handled via "Record email reply", which parses the reply against the questions. Runs in simulated mode until SES SMTP credentials are configured.
 - **Bulk sourcing** — upload a batch of CVs against a JD; each file is parsed (with OCR fallback for scanned PDFs), scored, and fed into the pipeline.
 - **Pipeline tracking** — per-JD candidate pipeline from `SOURCED` through `SENT_TO_CLIENT`.
 
@@ -112,6 +113,19 @@ All configuration lives in `.env` (see `.env.example`). Docker Compose reads it 
 | `NEXT_PUBLIC_API_URL` | `http://localhost:4000/api/v1` | API base URL baked into the web build (must be browser-reachable) |
 
 Scoring weights must sum to 100. Defaults can be overridden per deployment via env, and admins can adjust them at runtime through app settings.
+
+## Email pre-screening setup (AWS SES)
+
+Without SMTP credentials the channel runs in **simulated mode**: the composed email is stored on the conversation (viewable in the transcript), and the answer-form link works locally — so the whole flow is testable before touching SES.
+
+To send real email:
+
+1. In the AWS SES console, verify your domain (e.g. `metafordata.com`) and make sure the sending identity (`hiring@metafordata.com`) is covered by it. If the account is still in the SES **sandbox**, request production access first — sandbox accounts can only send to verified addresses.
+2. Create SMTP credentials (SES console → SMTP settings → Create SMTP credentials) and set in `.env`: `SES_SMTP_HOST` (e.g. `email-smtp.ap-south-1.amazonaws.com` for Mumbai), `SES_SMTP_PORT=587`, `SES_SMTP_USER`, `SES_SMTP_PASS`, `MAIL_FROM=hiring@metafordata.com`.
+3. Set `WEB_PUBLIC_URL` to the web app's public URL — it is embedded in emails as the answer-form link, so it must be reachable by candidates (not `localhost`).
+4. Recommended for deliverability: publish SPF, DKIM (SES provides the CNAME records) and a DMARC policy for the domain.
+
+Candidate answers flow back two ways: the **form link** (structured, lands automatically) or a plain **email reply** to `hiring@metafordata.com` — open the conversation and use *Record email reply* to parse it. Reply text is interpreted by the LLM against the question list; nothing is auto-sent back to the candidate.
 
 ## WhatsApp pre-screening setup
 

@@ -64,6 +64,9 @@ importers:
       node-tesseract-ocr:
         specifier: ^2.2.1
         version: 2.2.1
+      nodemailer:
+        specifier: ^9.0.3
+        version: 9.0.3
       pdf-parse:
         specifier: ^1.1.1
         version: 1.1.4
@@ -95,6 +98,9 @@ importers:
       '@types/node':
         specifier: ^20.17.9
         version: 20.19.43
+      '@types/nodemailer':
+        specifier: ^8.0.1
+        version: 8.0.1
       '@types/pdf-parse':
         specifier: ^1.1.4
         version: 1.1.5
@@ -1211,6 +1217,9 @@ packages:
 
   '@types/node@20.19.43':
     resolution: {integrity: sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA==}
+
+  '@types/nodemailer@8.0.1':
+    resolution: {integrity: sha512-PxpaInm8V1JQDd4j0ds5HfvWQk8JupS1C0Picb96QJsrrRDjBH+DlK7L4ZdNSqNULhiZRQHc40nLVShaGxXAMw==}
 
   '@types/pdf-parse@1.1.5':
     resolution: {integrity: sha512-kBfrSXsloMnUJOKi25s3+hRmkycHfLK6A09eRGqF/N8BkQoPUmaCr+q8Cli5FnfohEz/rsv82zAiPz/LXtOGhA==}
@@ -2364,6 +2373,10 @@ packages:
   node-tesseract-ocr@2.2.1:
     resolution: {integrity: sha512-Q9cD79JGpPNQBxbi1fV+OAsTxYKLpx22sagsxSyKbu1u+t6UarApf5m32uVc8a5QAP1Wk7fIPN0aJFGGEE9DyQ==}
     engines: {node: '>=10'}
+
+  nodemailer@9.0.3:
+    resolution: {integrity: sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw==}
+    engines: {node: '>=6.0.0'}
 
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
@@ -4296,6 +4309,10 @@ snapshots:
     dependencies:
       undici-types: 6.21.0
 
+  '@types/nodemailer@8.0.1':
+    dependencies:
+      '@types/node': 20.19.43
+
   '@types/pdf-parse@1.1.5':
     dependencies:
       '@types/node': 20.19.43
@@ -5494,6 +5511,8 @@ snapshots:
   node-releases@2.0.51: {}
 
   node-tesseract-ocr@2.2.1: {}
+
+  nodemailer@9.0.3: {}
 
   normalize-path@3.0.0: {}
 

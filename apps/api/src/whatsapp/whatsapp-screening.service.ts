@@ -395,7 +395,8 @@ export class WhatsappScreeningService {
 
   // -------------------------------------------------------------- parsing
 
-  private async interpretWithFallback(
+  /** Public: the email pre-screen channel reuses per-step interpretation. */
+  async interpretWithFallback(
     row: ScreeningConversation,
     step: ScreeningStep,
     reply: string,
@@ -439,7 +440,8 @@ export class WhatsappScreeningService {
 
   // -------------------------------------------------------------- brief
 
-  private buildBrief(row: ScreeningConversation): PreCallBrief {
+  /** Public: shared by the WhatsApp engine and the email-channel completion. */
+  buildBrief(row: ScreeningConversation): PreCallBrief {
     const answers = (row.answers as unknown as ScreeningAnswer[]) ?? [];
     const meta = (row.meta as unknown as ConversationMeta) ?? {};
     const byKey = new Map(answers.map((a) => [a.stepKey, a]));
@@ -491,7 +493,7 @@ export class WhatsappScreeningService {
   }
 
   /** Push confirmed logistics back onto the candidate record and pipeline. */
-  private async applyBriefToRecords(row: ScreeningConversation, brief: PreCallBrief): Promise<void> {
+  async applyBriefToRecords(row: ScreeningConversation, brief: PreCallBrief): Promise<void> {
     const data: Prisma.CandidateUpdateInput = {};
     if (brief.noticePeriod) data.noticePeriod = brief.noticePeriod;
     if (brief.location) {
@@ -571,7 +573,8 @@ export class WhatsappScreeningService {
     await this.appendTranscript(row.id, 'out', text);
   }
 
-  private async appendTranscript(
+  /** Public: the email channel logs its outbound mail and form submissions here. */
+  async appendTranscript(
     id: string,
     direction: 'in' | 'out',
     text: string,
@@ -615,7 +618,7 @@ export class WhatsappScreeningService {
     );
   }
 
-  private toDto(row: ConversationWithRefs): ScreeningConversationDto {
+  toDto(row: ConversationWithRefs): ScreeningConversationDto {
     return {
       id: row.id,
       candidateId: row.candidateId,
@@ -623,6 +626,8 @@ export class WhatsappScreeningService {
       jdId: row.jdId,
       jdTitle: row.jd?.title,
       status: row.status,
+      channel: row.channel,
+      formToken: row.formToken,
       currentStepKey: row.currentStepKey,
       steps: (row.steps as unknown as ScreeningStep[]) ?? [],
       answers: (row.answers as unknown as ScreeningAnswer[]) ?? [],

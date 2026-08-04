@@ -6,7 +6,10 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
+  ClipboardPaste,
+  Copy,
   Loader2,
+  Mail,
   MessageCircle,
   Phone,
   Send,
@@ -17,6 +20,7 @@ import type {
   CandidateDto,
   JdDto,
   PreCallBrief,
+  PrescreenChannel,
   ScreeningConversationDto,
   ScreeningConversationStatus,
 } from '@mfd/shared';
@@ -95,10 +99,10 @@ export function WhatsappPrescreenCard({
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <MessageCircle className="h-4 w-4 text-muted-foreground" />
-          WhatsApp Pre-Screen
+          Pre-Screen
           {simulated && (
             <Badge variant="outline" className="font-normal">
-              simulator mode
+              WhatsApp: simulator
             </Badge>
           )}
         </CardTitle>
@@ -112,8 +116,8 @@ export function WhatsappPrescreenCard({
       <CardContent className="space-y-2">
         {conversations.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No pre-screens yet. The bot confirms interest, logistics (notice, CTC, location) and CV
-            claims on WhatsApp, then books the human screening call.
+            No pre-screens yet. Confirm interest, logistics (notice, CTC, location) and CV claims
+            over WhatsApp or email before the human screening call.
           </p>
         ) : (
           conversations.map((conv) => (
@@ -123,6 +127,11 @@ export function WhatsappPrescreenCard({
               onClick={() => setViewId(conv.id)}
               className="flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-accent"
             >
+              {conv.channel === 'EMAIL' ? (
+                <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <MessageCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              )}
               <span className="min-w-0 flex-1 truncate font-medium">{conv.jdTitle ?? 'JD'}</span>
               {conv.brief && conv.brief.flags.length > 0 && (
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
@@ -179,39 +188,81 @@ function StartDialog({
   onOpenChange: (open: boolean) => void;
   onStarted: (conversationId: string) => void;
 }) {
+  const [channel, setChannel] = React.useState<PrescreenChannel>('EMAIL');
   const [jdId, setJdId] = React.useState<string | null>(null);
   const [phone, setPhone] = React.useState('');
+  const [email, setEmail] = React.useState('');
 
   const { data: jds, isLoading } = useQuery({
     queryKey: ['jds'],
     queryFn: () => api.get<JdDto[]>('/jds'),
     enabled: open,
   });
+  const { data: emailConfig } = useQuery({
+    queryKey: ['email-prescreen-config'],
+    queryFn: () => api.get<{ mode: 'smtp' | 'simulated' }>('/email-prescreen/config'),
+    enabled: open,
+  });
 
   const start = useMutation({
     mutationFn: () =>
-      api.post<ScreeningConversationDto>('/whatsapp-screening', {
-        candidateId: candidate.id,
-        jdId,
-        ...(phone.trim() ? { phone: phone.trim() } : {}),
-      }),
+      channel === 'EMAIL'
+        ? api.post<ScreeningConversationDto>('/email-prescreen', {
+            candidateId: candidate.id,
+            jdId,
+            ...(email.trim() ? { email: email.trim() } : {}),
+          })
+        : api.post<ScreeningConversationDto>('/whatsapp-screening', {
+            candidateId: candidate.id,
+            jdId,
+            ...(phone.trim() ? { phone: phone.trim() } : {}),
+          }),
     onSuccess: (conv) => {
-      toast.success('Pre-screen invite sent');
+      toast.success(channel === 'EMAIL' ? 'Pre-screening email sent' : 'Pre-screen invite sent');
       onOpenChange(false);
       onStarted(conv.id);
     },
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const needsPhone = !candidate.phone && phone.trim().length === 0;
+  const needsContact =
+    channel === 'EMAIL'
+      ? !candidate.email && email.trim().length === 0
+      : !candidate.phone && phone.trim().length === 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Start WhatsApp pre-screen</DialogTitle>
+          <DialogTitle>Start pre-screen</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Channel</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={channel === 'EMAIL' ? 'default' : 'outline'}
+                onClick={() => setChannel('EMAIL')}
+                className="justify-start"
+              >
+                <Mail className="h-4 w-4" />
+                Email
+                {emailConfig?.mode === 'simulated' && (
+                  <span className="ml-auto text-[10px] opacity-70">simulated</span>
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant={channel === 'WHATSAPP' ? 'default' : 'outline'}
+                onClick={() => setChannel('WHATSAPP')}
+                className="justify-start"
+              >
+                <MessageCircle className="h-4 w-4" />
+                WhatsApp
+              </Button>
+            </div>
+          </div>
           <div className="space-y-1.5">
             <Label>Job description</Label>
             <EntityCombobox
@@ -226,31 +277,47 @@ function StartDialog({
               searchPlaceholder="Search JDs…"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="prescreen-phone" className="flex items-center gap-1.5">
-              <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-              WhatsApp number {candidate.phone ? '(from CV — override if needed)' : '(required)'}
-            </Label>
-            <Input
-              id="prescreen-phone"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder={candidate.phone ?? '+91XXXXXXXXXX'}
-            />
-          </div>
+          {channel === 'WHATSAPP' ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="prescreen-phone" className="flex items-center gap-1.5">
+                <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                WhatsApp number {candidate.phone ? '(from CV — override if needed)' : '(required)'}
+              </Label>
+              <Input
+                id="prescreen-phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder={candidate.phone ?? '+91XXXXXXXXXX'}
+              />
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="prescreen-email" className="flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                Email address {candidate.email ? '(from CV — override if needed)' : '(required)'}
+              </Label>
+              <Input
+                id="prescreen-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={candidate.email ?? 'candidate@example.com'}
+              />
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
-            The invite explains who we are and asks for consent; the bot then confirms interest,
-            notice period, CTC, location, offers in hand and the current-role claim, and books the
-            human screening call. Questions are fixed templates — AI only interprets the replies.
+            {channel === 'EMAIL'
+              ? 'Sends one concise email from hiring@metafordata.com with a secure answer-form link plus the questions inline (candidates can also just reply). Answers become a pre-call brief automatically.'
+              : 'The invite explains who we are and asks for consent; the bot then walks through the questions one by one and books the human screening call.'}
           </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button disabled={!jdId || needsPhone || start.isPending} onClick={() => start.mutate()}>
+          <Button disabled={!jdId || needsContact || start.isPending} onClick={() => start.mutate()}>
             {start.isPending ? <Loader2 className="animate-spin" /> : <Send />}
-            Send invite
+            {channel === 'EMAIL' ? 'Send email' : 'Send invite'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -280,8 +347,8 @@ function ConversationDialog({
   const query = useQuery({
     queryKey: ['whatsapp-conversation', conversationId],
     queryFn: () => api.get<ScreeningConversationDto>(`/whatsapp-screening/${conversationId}`),
-    // In meta mode candidate replies arrive via webhook — poll while open.
-    refetchInterval: simulated ? false : 5000,
+    // Replies arrive out-of-band (webhook / public form) — poll while open.
+    refetchInterval: 5000,
   });
   const conv = query.data;
 
@@ -313,7 +380,35 @@ function ConversationDialog({
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const [replyOpen, setReplyOpen] = React.useState(false);
+  const [replyText, setReplyText] = React.useState('');
+  const recordReply = useMutation({
+    mutationFn: () =>
+      api.post<ScreeningConversationDto>(`/email-prescreen/${conversationId}/record-reply`, {
+        text: replyText,
+      }),
+    onSuccess: () => {
+      toast.success('Reply parsed — pre-call brief ready');
+      setReplyOpen(false);
+      setReplyText('');
+      refresh();
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const copyFormLink = async () => {
+    if (!conv?.formToken) return;
+    const link = `${window.location.origin}/prescreen/${conv.formToken}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success('Form link copied');
+    } catch {
+      toast.error(`Could not copy — link: ${link}`);
+    }
+  };
+
   const active = conv ? ACTIVE.has(conv.status) : false;
+  const isEmail = conv?.channel === 'EMAIL';
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
@@ -362,7 +457,44 @@ function ConversationDialog({
 
         {/* Simulator input / actions */}
         <div className="space-y-2 border-t pt-3">
-          {simulated && active && !isViewer && (
+          {isEmail && active && !isViewer && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={copyFormLink}>
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy form link
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setReplyOpen((v) => !v)}>
+                  <ClipboardPaste className="h-3.5 w-3.5" />
+                  Record email reply…
+                </Button>
+              </div>
+              {replyOpen && (
+                <div className="space-y-1.5">
+                  <textarea
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    rows={5}
+                    placeholder="Paste the candidate's email reply here — it will be parsed against the questions"
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={replyText.trim().length < 5 || recordReply.isPending}
+                    onClick={() => recordReply.mutate()}
+                  >
+                    {recordReply.isPending ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <ClipboardPaste className="h-3.5 w-3.5" />
+                    )}
+                    Parse reply &amp; complete
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          {!isEmail && simulated && active && !isViewer && (
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
                 Simulator — reply as the candidate would on WhatsApp

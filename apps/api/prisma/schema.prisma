@@ -83,6 +83,11 @@ enum ScreeningConversationStatus {
   CANCELLED
 }
 
+enum PrescreenChannel {
+  WHATSAPP
+  EMAIL
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -303,10 +308,15 @@ model ScreeningConversation {
   jdId        String
   jd          Jd                          @relation(fields: [jdId], references: [id], onDelete: Cascade)
   status      ScreeningConversationStatus @default(INVITED)
-  /// AES-256-GCM encrypted E.164 phone this conversation runs on
-  phone       String
+  channel     PrescreenChannel            @default(WHATSAPP)
+  /// AES-256-GCM encrypted E.164 phone (WhatsApp channel)
+  phone       String?
   /// sha256 of the normalized phone — routes inbound webhook messages
-  phoneHash   String
+  phoneHash   String?
+  /// AES-256-GCM encrypted email address (email channel)
+  email       String?
+  /// Random URL token for the public response form (email channel)
+  formToken   String?  @unique
   currentStepKey String?
   /// ScreeningStep[] — the question flow, snapshotted with the exact text sent
   steps       Json

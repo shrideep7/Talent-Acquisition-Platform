@@ -8,6 +8,7 @@ import { CandidatesModule } from './candidates/candidates.module';
 import { CommonModule } from './common/common.module';
 import { CvVersionsModule } from './cv-versions/cv-versions.module';
 import { DocumentsModule } from './documents/documents.module';
+import { EmailModule } from './email/email.module';
 import { ExportModule } from './export/export.module';
 import { JdsModule } from './jds/jds.module';
 import { NaukriModule } from './naukri/naukri.module';
@@ -36,6 +37,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     PipelineModule,
     SourcingModule,
     WhatsappModule,
+    EmailModule,
     SettingsModule,
     AuditModule,
   ],
