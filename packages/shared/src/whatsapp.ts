@@ -81,6 +81,8 @@ export interface ScreeningConversationDto {
   channel: PrescreenChannel;
   /** Public response-form token (email channel) — form URL is /prescreen/<token>. */
   formToken: string | null;
+  /** The exact answer link sent to the candidate (external Google Form or built-in page). */
+  formUrl?: string | null;
   currentStepKey: string | null;
   steps: ScreeningStep[];
   answers: ScreeningAnswer[];

@@ -113,9 +113,13 @@ export class EmailPrescreenService {
     };
     const steps = buildSteps(ctx);
     const formToken = randomBytes(24).toString('base64url');
+    // An external form (e.g. Google Forms, answers collected in a Sheet)
+    // wins when configured — essential while the app itself isn't publicly
+    // reachable. Otherwise fall back to the built-in tokenized form page.
+    const externalForm = this.config.get<string>('PRESCREEN_FORM_URL')?.trim();
     const webUrl = (this.config.get<string>('WEB_PUBLIC_URL') ?? 'http://localhost:3000').replace(/\/$/, '');
-    const formUrl = `${webUrl}/prescreen/${formToken}`;
-    const composed = buildPrescreenEmail(ctx, steps, formUrl);
+    const formUrl = externalForm || `${webUrl}/prescreen/${formToken}`;
+    const composed = buildPrescreenEmail(ctx, formUrl);
 
     const conversation = await this.prisma.screeningConversation.create({
       data: {
@@ -125,7 +129,7 @@ export class EmailPrescreenService {
         email: this.crypto.encrypt(email) as string,
         formToken,
         steps: steps as unknown as object,
-        meta: { candidateQuestions: [], flow: ctx } as unknown as object,
+        meta: { candidateQuestions: [], flow: ctx, formUrl } as unknown as object,
         createdById: user.id,
       },
     });
