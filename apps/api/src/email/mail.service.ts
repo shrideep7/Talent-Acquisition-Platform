@@ -72,6 +72,11 @@ export class MailService {
         subject: mail.subject,
         text: mail.text,
         html: mail.html,
+        headers: {
+          // Gmail/Outlook weigh a one-click unsubscribe path heavily when
+          // scoring recruitment mail — without it, spam placement is likely.
+          'List-Unsubscribe': `<mailto:${this.replyTo ?? this.from}?subject=unsubscribe>`,
+        },
       });
       return { ok: true };
     } catch (err) {

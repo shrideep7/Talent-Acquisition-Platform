@@ -125,7 +125,12 @@ To send real email:
 3. Choose the answer form the email links to:
    - **External form (recommended while the app runs on localhost):** create a Google Form mirroring the pre-screen questions (link its responses to a Sheet) and set `PRESCREEN_FORM_URL` to the form's share link. Every pre-screening email then links there.
    - **Built-in form:** leave `PRESCREEN_FORM_URL` empty and set `WEB_PUBLIC_URL` to the web app's candidate-reachable public URL (not `localhost`) — emails link to the tokenized `/prescreen/<token>` page and answers complete the conversation automatically.
-4. Recommended for deliverability: publish SPF, DKIM (SES provides the CNAME records) and a DMARC policy for the domain.
+4. **Deliverability (do this or mail lands in spam):**
+   - **DKIM** — SES console → your domain identity → *DKIM* tab → enable Easy DKIM and publish the three CNAME records in your DNS; wait until status shows *Successful*. This is the single biggest factor.
+   - **Custom MAIL FROM domain** — identity → *Custom MAIL FROM domain* → set e.g. `mail.metafordata.com` and publish the MX + SPF TXT records SES shows. This makes SPF align with your domain instead of amazonses.com.
+   - **DMARC** — publish a TXT record `_dmarc.metafordata.com` with value `v=DMARC1; p=none; rua=mailto:careers@metafordata.com`.
+   - Verify the result: send yourself a pre-screen, open it in Gmail → ⋮ → *Show original* — SPF, DKIM and DMARC must all say **PASS** with `metafordata.com`.
+   - Warm up: send low volumes at first, and ask early recipients to hit *Not spam* / reply — engagement trains the filters.
 
 Candidate answers flow back three ways: the **built-in form** (structured, completes the conversation automatically), a **Google Form** (open the conversation, click *Record response…*, paste the response row from the linked Sheet), or a plain **email reply** (paste it the same way). Pasted text is interpreted by the LLM against the question list; nothing is auto-sent back to the candidate.
 

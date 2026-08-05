@@ -91,7 +91,7 @@ services:
       MAIL_FROM: ${MAIL_FROM:-hiring@metafordata.com}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-MFD Talent}
       MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
-      PRESCREEN_FORM_URL: ${PRESCREEN_FORM_URL:-}
+      PRESCREEN_FORM_URL: ${PRESCREEN_FORM_URL:-https://forms.gle/ArPHA9cm3CDNdbgg7}
       WEB_PUBLIC_URL: ${WEB_PUBLIC_URL:-http://localhost:3000}
       WHATSAPP_MODE: ${WHATSAPP_MODE:-simulated}
       WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
