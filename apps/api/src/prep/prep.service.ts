@@ -39,9 +39,9 @@ export class PrepService {
     const ai = await this.llm.structured({
       promptName: 'interview-prep',
       schema: InterviewPrepSchema,
-      // v2 added the hrScreeningCall deck — new cache key so old entries
-      // (which lack it) are not replayed.
-      schemaVersion: 'v2',
+      // v3 removed the skillGaps briefing (superseded by the upskilling
+      // plan) — new cache key so old-shape entries are not replayed.
+      schemaVersion: 'v3',
       candidateId,
       userContent: JSON.stringify({ jd: parsedJd, cv: parsedCv, breakdown }),
     });

@@ -8,13 +8,13 @@ import {
   ChevronRight,
   ClipboardCheck,
   Copy,
+  Download,
   GraduationCap,
   Hammer,
   ListChecks,
   Loader2,
   MessageCircleQuestion,
   PhoneCall,
-  Printer,
   RefreshCw,
   Scale,
   Sparkles,
@@ -28,6 +28,15 @@ import type {
   SkillVerificationChecklist,
   UpskillingPlan,
 } from '@mfd/shared';
+
+import {
+  hrCallHtml,
+  likelyQuestionsHtml,
+  openPrintWindow,
+  screeningHtml,
+  upskillingHtml,
+  type SkillsSnapshot,
+} from '@/components/prep/print-section';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -43,7 +52,6 @@ import { cn, formatDateTime } from '@/lib/utils';
 // ---------------------------------------------------------------------------
 
 type QuestionCategory = InterviewPrep['likelyQuestions'][number]['category'];
-type GapSeverity = InterviewPrep['skillGaps'][number]['severity'];
 
 const CATEGORY_LABELS: Record<QuestionCategory, string> = {
   technical: 'Technical',
@@ -64,25 +72,29 @@ const CATEGORY_STYLES: Record<QuestionCategory, string> = {
   scenario: 'border-transparent bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
 };
 
-const SEVERITY_ORDER: GapSeverity[] = ['critical', 'important', 'minor'];
-
-const SEVERITY_CARD: Record<GapSeverity, string> = {
-  critical: 'border-l-4 border-l-red-500',
-  important: 'border-l-4 border-l-amber-500',
-  minor: 'border-l-4 border-l-slate-400',
-};
-
-const SEVERITY_BADGE: Record<GapSeverity, string> = {
-  critical: 'border-transparent bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
-  important: 'border-transparent bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
-  minor: 'border-transparent bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300',
-};
-
-const SEVERITY_TITLES: Record<GapSeverity, string> = {
-  critical: 'Critical gaps',
-  important: 'Important gaps',
-  minor: 'Minor gaps',
-};
+/** Opens the browser print dialog on a window containing only this section. */
+function SectionDownload({
+  title,
+  buildHtml,
+}: {
+  title: string;
+  buildHtml: () => string;
+}) {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => {
+        if (!openPrintWindow(title, buildHtml())) {
+          toast.error('Allow pop-ups for this site to download the section');
+        }
+      }}
+    >
+      <Download className="mr-1.5 h-3.5 w-3.5" />
+      Download
+    </Button>
+  );
+}
 
 type ScreeningArea = HrScreeningCall['questions'][number]['area'];
 
@@ -118,7 +130,16 @@ function prepErrorToast(err: unknown, fallback: string) {
 // import { PrepPanel } from '@/components/prep/prep-panel';
 // ---------------------------------------------------------------------------
 
-export function PrepPanel({ jdId, candidateId }: { jdId: string; candidateId: string }): JSX.Element {
+export function PrepPanel({
+  jdId,
+  candidateId,
+  skills,
+}: {
+  jdId: string;
+  candidateId: string;
+  /** Matched/partial/missing skills from the latest analysis — included in the upskilling download. */
+  skills?: SkillsSnapshot;
+}): JSX.Element {
   const { user } = useAuth();
   const isViewer = user?.role === 'VIEWER';
   const queryClient = useQueryClient();
@@ -156,10 +177,10 @@ export function PrepPanel({ jdId, candidateId }: { jdId: string; candidateId: st
         <CardHeader>
           <CardTitle className="text-base">Interview Prep Pack</CardTitle>
           <CardDescription>
-            Generates four briefings from the latest match analysis: an HR screening-call deck to
+            Generates three briefings from the latest match analysis: an HR screening-call deck to
             verify the candidate is genuine on the first call, the questions the client is likely
-            to ask, a skill-gap briefing to prepare the candidate, and genuineness-screening
-            questions for MFD&apos;s internal interview.
+            to ask, and genuineness-screening questions for MFD&apos;s internal interview — plus the
+            Upskilling Plan tab for closing skill gaps.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -184,61 +205,47 @@ export function PrepPanel({ jdId, candidateId }: { jdId: string; candidateId: st
 
   return (
     <div className="space-y-4">
-      {/* Print stylesheet — hides the app chrome when printing the prep pack. */}
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-@media print {
-  aside, nav, header { display: none !important; }
-  .pl-60 { padding-left: 0 !important; }
-  main { padding: 0 !important; }
-  .prep-print-hidden { display: none !important; }
-}`,
-        }}
-      />
-
       {/* Header row */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Prep pack generated {formatDateTime(latest.createdAt)}
+          Prep pack generated {formatDateTime(latest.createdAt)} — each section has its own
+          Download button.
         </p>
-        <div className="prep-print-hidden flex items-center gap-2">
-          {!isViewer && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => generate.mutate()}
-              disabled={generate.isPending}
-            >
-              {generate.isPending ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              Regenerate
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={() => window.print()}>
-            <Printer className="mr-1.5 h-3.5 w-3.5" />
-            Print
+        {!isViewer && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => generate.mutate()}
+            disabled={generate.isPending}
+          >
+            {generate.isPending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Regenerate
           </Button>
-        </div>
+        )}
       </div>
 
       {generate.isPending && <GeneratingHint />}
 
       <Tabs defaultValue="hr-call">
-        <TabsList className="prep-print-hidden">
+        <TabsList>
           <TabsTrigger value="hr-call">HR Screening Call</TabsTrigger>
           <TabsTrigger value="questions">Likely Client Questions</TabsTrigger>
-          <TabsTrigger value="gaps">Skill Gap Briefing</TabsTrigger>
           <TabsTrigger value="screening">Genuineness Screening</TabsTrigger>
           <TabsTrigger value="upskilling">Upskilling Plan</TabsTrigger>
         </TabsList>
 
         {/* ------------------------------------------------ Upskilling plan */}
         <TabsContent value="upskilling" className="space-y-3">
-          <UpskillingPlanSection jdId={jdId} candidateId={candidateId} isViewer={isViewer} />
+          <UpskillingPlanSection
+            jdId={jdId}
+            candidateId={candidateId}
+            isViewer={isViewer}
+            skills={skills}
+          />
         </TabsContent>
 
         {/* ------------------------------------------------ HR screening call */}
@@ -248,6 +255,14 @@ export function PrepPanel({ jdId, candidateId }: { jdId: string; candidateId: st
 
         {/* ------------------------------------------------ Likely questions */}
         <TabsContent value="questions" className="space-y-3">
+          {prep.likelyQuestions.length > 0 && (
+            <div className="flex justify-end">
+              <SectionDownload
+                title="Likely Client Questions"
+                buildHtml={() => likelyQuestionsHtml(prep.likelyQuestions)}
+              />
+            </div>
+          )}
           {prep.likelyQuestions.length === 0 ? (
             <EmptyNote text="No likely questions were generated." />
           ) : (
@@ -277,51 +292,19 @@ export function PrepPanel({ jdId, candidateId }: { jdId: string; candidateId: st
           )}
         </TabsContent>
 
-        {/* ------------------------------------------------ Skill gap briefing */}
-        <TabsContent value="gaps" className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Use this to brief the candidate before the client interview.
-          </p>
-          {prep.skillGaps.length === 0 ? (
-            <EmptyNote text="No skill gaps identified — the candidate covers the JD well." />
-          ) : (
-            SEVERITY_ORDER.map((severity) => {
-              const gaps = prep.skillGaps.filter((g) => g.severity === severity);
-              if (gaps.length === 0) return null;
-              return (
-                <div key={severity} className="space-y-2">
-                  <h4 className="text-sm font-medium">
-                    {SEVERITY_TITLES[severity]}{' '}
-                    <span className="font-normal text-muted-foreground">({gaps.length})</span>
-                  </h4>
-                  {gaps.map((gap, i) => (
-                    <Card key={i} className={SEVERITY_CARD[severity]}>
-                      <CardContent className="space-y-2 pt-5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold">{gap.skill}</p>
-                          <Badge className={cn('shadow-none', SEVERITY_BADGE[severity])}>
-                            {severity}
-                          </Badge>
-                          <Badge variant="outline" className="font-normal capitalize">
-                            {gap.gapType}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">{gap.currentState}</p>
-                        <p className="text-sm">{gap.prepPlan}</p>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              );
-            })
-          )}
-        </TabsContent>
-
         {/* ------------------------------------------------ Genuineness screening */}
         <TabsContent value="screening" className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Ask these in MFD&apos;s internal interview to verify the CV is authentic.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              Ask these in MFD&apos;s internal interview to verify the CV is authentic.
+            </p>
+            {prep.screeningQuestions.length > 0 && (
+              <SectionDownload
+                title="Genuineness Screening Questions"
+                buildHtml={() => screeningHtml(prep.screeningQuestions)}
+              />
+            )}
+          </div>
           {prep.screeningQuestions.length === 0 ? (
             <EmptyNote text="No screening questions were generated." />
           ) : (
@@ -386,10 +369,13 @@ function HrScreeningCallDeck({ call }: { call: HrScreeningCall | undefined }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        For the first telephonic screening — verifies the CV&apos;s experience, skills and projects
-        with questions a non-technical recruiter can ask and judge.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+          For the first telephonic screening — verifies the CV&apos;s experience, skills and
+          projects with questions a non-technical recruiter can ask and judge.
+        </p>
+        <SectionDownload title="HR Screening Call" buildHtml={() => hrCallHtml(call)} />
+      </div>
 
       {/* Opening script */}
       {call.callOpening.length > 0 && (
@@ -521,10 +507,12 @@ function UpskillingPlanSection({
   jdId,
   candidateId,
   isViewer,
+  skills,
 }: {
   jdId: string;
   candidateId: string;
   isViewer: boolean;
+  skills?: SkillsSnapshot;
 }) {
   const [plan, setPlan] = React.useState<UpskillingPlan | null>(null);
 
@@ -581,22 +569,27 @@ function UpskillingPlanSection({
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="min-w-0 flex-1 text-sm text-muted-foreground">{plan.summary}</p>
-        {!isViewer && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="prep-print-hidden"
-            onClick={() => generate.mutate()}
-            disabled={generate.isPending}
-          >
-            {generate.isPending ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Regenerate
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <SectionDownload
+            title="Upskilling Plan"
+            buildHtml={() => upskillingHtml(plan, skills)}
+          />
+          {!isViewer && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => generate.mutate()}
+              disabled={generate.isPending}
+            >
+              {generate.isPending ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Regenerate
+            </Button>
+          )}
+        </div>
       </div>
 
       {plan.items.length === 0 ? (
@@ -657,7 +650,7 @@ function UpskillingPlanSection({
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
             <CardTitle className="text-sm">Message for the candidate</CardTitle>
-            <Button variant="outline" size="sm" className="prep-print-hidden" onClick={copyMessage}>
+            <Button variant="outline" size="sm" onClick={copyMessage}>
               <Copy className="h-3.5 w-3.5" />
               Copy
             </Button>
@@ -743,7 +736,7 @@ function VerificationChecklistSection({
           <ListChecks className="h-4 w-4 text-muted-foreground" />
           Skill Verification Checklist
         </span>
-        <span className="prep-print-hidden text-xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           For Tier-3 (unverified-possible) skills from the latest analysis
         </span>
       </button>
@@ -768,7 +761,7 @@ function VerificationChecklistSection({
                   variant="outline"
                   size="sm"
                   onClick={() => generate.mutate()}
-                  className="prep-print-hidden"
+                 
                 >
                   <Sparkles className="mr-1.5 h-3.5 w-3.5" />
                   Generate checklist for unverified skills
@@ -804,7 +797,7 @@ function VerificationChecklistSection({
                   size="sm"
                   onClick={() => generate.mutate()}
                   disabled={generate.isPending}
-                  className="prep-print-hidden"
+                 
                 >
                   {generate.isPending ? (
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />

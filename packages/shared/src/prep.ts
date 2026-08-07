@@ -51,9 +51,10 @@ export const HrScreeningCallSchema = z.object({
 export type HrScreeningCall = z.infer<typeof HrScreeningCallSchema>;
 
 /**
- * Interview preparation pack: likely client-interview questions, skill gaps
- * for candidate briefing, genuineness screening questions for MFD's
- * internal interview, and the HR first-screening-call deck.
+ * Interview preparation pack: likely client-interview questions, genuineness
+ * screening questions for MFD's internal interview, and the HR
+ * first-screening-call deck. (Skill-gap coaching lives in the separate
+ * upskilling plan.)
  */
 export const InterviewPrepSchema = z.object({
   likelyQuestions: z
@@ -68,21 +69,6 @@ export const InterviewPrepSchema = z.object({
       }),
     )
     .describe('Questions the client (e.g. NTT DATA) is likely to ask in the technical interview'),
-  skillGaps: z
-    .array(
-      z.object({
-        skill: z.string(),
-        severity: z.enum(['critical', 'important', 'minor']),
-        gapType: z
-          .enum(['missing', 'shallow', 'outdated', 'unevidenced'])
-          .describe('missing: no exposure. shallow: some exposure, needs depth. outdated: old version/practice. unevidenced: may have it but CV shows nothing.'),
-        currentState: z.string().describe('What the CV shows today for this area'),
-        prepPlan: z
-          .string()
-          .describe('Concrete preparation guidance the recruiter can give the candidate before the client interview'),
-      }),
-    )
-    .describe('Gaps between the JD and the candidate, for the pre-interview briefing'),
   screeningQuestions: z
     .array(
       z.object({

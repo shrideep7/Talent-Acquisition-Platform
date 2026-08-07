@@ -283,7 +283,15 @@ function AnalyzerContent() {
             </TabsContent>
             <TabsContent value="prep" className="mt-4">
               {jdId && resultsCandidateId ? (
-                <PrepPanel jdId={jdId} candidateId={resultsCandidateId} />
+                <PrepPanel
+                  jdId={jdId}
+                  candidateId={resultsCandidateId}
+                  skills={{
+                    matched: analysis.breakdown.skills.matched,
+                    partial: analysis.breakdown.skills.partial,
+                    missing: analysis.breakdown.skills.missing,
+                  }}
+                />
               ) : null}
             </TabsContent>
             <TabsContent value="history" className="mt-4">
