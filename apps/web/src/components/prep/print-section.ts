@@ -34,14 +34,30 @@ const PRINT_STYLE = `
   .pre { white-space: pre-wrap; }
 `;
 
+/**
+ * Printed PDFs are standard, brand-free documents: no tool or agency name.
+ * Section content includes AI-generated text (opening scripts, candidate
+ * messages) that may mention the firm — neutralize every variant.
+ */
+function stripBranding(html: string): string {
+  return html
+    .replace(/team mfd talent\b/gi, 'our team')
+    .replace(/mfd talent team\b/gi, 'our team')
+    .replace(/team mfd\b/gi, 'our team')
+    .replace(/mfd talent acquisition tool\b/gi, 'our platform')
+    .replace(/mfd talent\b/gi, 'our team')
+    .replace(/mfd['’]s\b/gi, 'our')
+    .replace(/\bmfd\b/gi, 'our team');
+}
+
 export function openPrintWindow(title: string, bodyHtml: string): boolean {
   const win = window.open('', '_blank', 'width=900,height=700');
   if (!win) return false;
   win.document.write(
     `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(title)}</title>` +
       `<style>${PRINT_STYLE}</style></head><body>` +
-      `<h1>${esc(title)}</h1><p class="sub">MFD Talent Acquisition Tool — generated ${new Date().toLocaleDateString()}</p>` +
-      bodyHtml +
+      `<h1>${esc(title)}</h1><p class="sub">Generated ${new Date().toLocaleDateString()}</p>` +
+      stripBranding(bodyHtml) +
       `<script>window.onload = function () { window.print(); };</script></body></html>`,
   );
   win.document.close();
