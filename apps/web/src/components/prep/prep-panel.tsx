@@ -7,10 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
-  Copy,
   Download,
-  GraduationCap,
-  Hammer,
   ListChecks,
   Loader2,
   MessageCircleQuestion,
@@ -26,7 +23,6 @@ import type {
   InterviewPrep,
   InterviewPrepDto,
   SkillVerificationChecklist,
-  UpskillingPlan,
 } from '@mfd/shared';
 
 import {
@@ -34,8 +30,6 @@ import {
   likelyQuestionsHtml,
   openPrintWindow,
   screeningHtml,
-  upskillingHtml,
-  type SkillsSnapshot,
 } from '@/components/prep/print-section';
 
 import { Badge } from '@/components/ui/badge';
@@ -130,16 +124,7 @@ function prepErrorToast(err: unknown, fallback: string) {
 // import { PrepPanel } from '@/components/prep/prep-panel';
 // ---------------------------------------------------------------------------
 
-export function PrepPanel({
-  jdId,
-  candidateId,
-  skills,
-}: {
-  jdId: string;
-  candidateId: string;
-  /** Matched/partial/missing skills from the latest analysis — included in the upskilling download. */
-  skills?: SkillsSnapshot;
-}): JSX.Element {
+export function PrepPanel({ jdId, candidateId }: { jdId: string; candidateId: string }): JSX.Element {
   const { user } = useAuth();
   const isViewer = user?.role === 'VIEWER';
   const queryClient = useQueryClient();
@@ -179,8 +164,8 @@ export function PrepPanel({
           <CardDescription>
             Generates three briefings from the latest match analysis: an HR screening-call deck to
             verify the candidate is genuine on the first call, the questions the client is likely
-            to ask, and genuineness-screening questions for MFD&apos;s internal interview — plus the
-            Upskilling Plan tab for closing skill gaps.
+            to ask, and genuineness-screening questions for MFD&apos;s internal interview. (The
+            Upskilling Plan has its own tab and doesn&apos;t need this pack.)
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -235,18 +220,7 @@ export function PrepPanel({
           <TabsTrigger value="hr-call">HR Screening Call</TabsTrigger>
           <TabsTrigger value="questions">Likely Client Questions</TabsTrigger>
           <TabsTrigger value="screening">Genuineness Screening</TabsTrigger>
-          <TabsTrigger value="upskilling">Upskilling Plan</TabsTrigger>
         </TabsList>
-
-        {/* ------------------------------------------------ Upskilling plan */}
-        <TabsContent value="upskilling" className="space-y-3">
-          <UpskillingPlanSection
-            jdId={jdId}
-            candidateId={candidateId}
-            isViewer={isViewer}
-            skills={skills}
-          />
-        </TabsContent>
 
         {/* ------------------------------------------------ HR screening call */}
         <TabsContent value="hr-call" className="space-y-3">
@@ -488,180 +462,6 @@ function HrScreeningCallDeck({ call }: { call: HrScreeningCall | undefined }) {
           </Card>
         )}
       </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Upskilling plan — honest learning path for genuinely missing skills
-// ---------------------------------------------------------------------------
-
-const PRIORITY_STYLES: Record<string, string> = {
-  critical: 'border-transparent bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
-  important: 'border-transparent bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
-  nice_to_have:
-    'border-transparent bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300',
-};
-
-function UpskillingPlanSection({
-  jdId,
-  candidateId,
-  isViewer,
-  skills,
-}: {
-  jdId: string;
-  candidateId: string;
-  isViewer: boolean;
-  skills?: SkillsSnapshot;
-}) {
-  const [plan, setPlan] = React.useState<UpskillingPlan | null>(null);
-
-  const generate = useMutation({
-    mutationFn: () =>
-      api.post<UpskillingPlan>('/interview-preps/upskilling-plan', { jdId, candidateId }),
-    onSuccess: (result) => {
-      setPlan(result);
-      toast.success(
-        result.items.length === 0
-          ? 'No missing skills — nothing to upskill'
-          : `Upskilling plan ready — ${result.items.length} skill area${result.items.length === 1 ? '' : 's'}`,
-      );
-    },
-    onError: (err) => prepErrorToast(err, 'Failed to generate the upskilling plan'),
-  });
-
-  const copyMessage = async () => {
-    if (!plan?.candidateMessage) return;
-    try {
-      await navigator.clipboard.writeText(plan.candidateMessage);
-      toast.success('Message copied — send it to the candidate');
-    } catch {
-      toast.error('Could not access the clipboard');
-    }
-  };
-
-  if (plan === null) {
-    return (
-      <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">
-          For skills the candidate genuinely lacks: a realistic learning path (leveraging what they
-          already know), a hands-on exercise per skill, and interview questions to practice — plus
-          a ready-to-send message for the candidate. Skills enter the CV only through verification;
-          this plan closes the gaps honestly.
-        </p>
-        {generate.isPending ? (
-          <GeneratingHint />
-        ) : isViewer ? (
-          <p className="text-sm text-muted-foreground">
-            Plan generation requires a recruiter or admin role.
-          </p>
-        ) : (
-          <Button onClick={() => generate.mutate()}>
-            <GraduationCap className="mr-2 h-4 w-4" />
-            Generate upskilling plan
-          </Button>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="min-w-0 flex-1 text-sm text-muted-foreground">{plan.summary}</p>
-        <div className="flex items-center gap-2">
-          <SectionDownload
-            title="Upskilling Plan"
-            buildHtml={() => upskillingHtml(plan, skills)}
-          />
-          {!isViewer && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => generate.mutate()}
-              disabled={generate.isPending}
-            >
-              {generate.isPending ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              Regenerate
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {plan.items.length === 0 ? (
-        <EmptyNote text="No missing skills in the latest analysis." />
-      ) : (
-        plan.items.map((item, i) => (
-          <Card key={i}>
-            <CardContent className="space-y-3 pt-5">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-semibold">{item.skill}</p>
-                <Badge className={cn('shadow-none', PRIORITY_STYLES[item.priority])}>
-                  {item.priority.replace('_', ' ')}
-                </Badge>
-                <Badge variant="outline" className="font-normal">
-                  learnable in {item.learnability}
-                </Badge>
-              </div>
-              <p className="text-sm text-muted-foreground">{item.whyItMatters}</p>
-              {item.leverageExisting && (
-                <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">
-                  <span className="font-medium">Head start: </span>
-                  {item.leverageExisting}
-                </p>
-              )}
-              {item.learningPath.length > 0 && (
-                <ol className="list-decimal space-y-1 pl-5 text-sm">
-                  {item.learningPath.map((step, j) => (
-                    <li key={j}>{step}</li>
-                  ))}
-                </ol>
-              )}
-              <p className="flex items-start gap-2 rounded-md bg-muted/50 p-3 text-sm">
-                <Hammer className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <span>
-                  <span className="font-medium">Build this: </span>
-                  {item.handsOnExercise}
-                </span>
-              </p>
-              {item.interviewQuestions.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Practice questions
-                  </p>
-                  {item.interviewQuestions.map((q, j) => (
-                    <div key={j} className="space-y-0.5 text-sm">
-                      <p className="font-medium">{q.question}</p>
-                      <p className="text-muted-foreground">{q.guidance}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))
-      )}
-
-      {plan.candidateMessage && (
-        <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm">Message for the candidate</CardTitle>
-            <Button variant="outline" size="sm" onClick={copyMessage}>
-              <Copy className="h-3.5 w-3.5" />
-              Copy
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <p className="whitespace-pre-wrap rounded-md bg-muted/50 p-3 text-sm">
-              {plan.candidateMessage}
-            </p>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

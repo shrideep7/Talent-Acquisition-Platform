@@ -18,6 +18,7 @@ import { SideBySideView } from '@/components/analyzer/side-by-side';
 import { VersionHistoryTab } from '@/components/analyzer/version-history-tab';
 import { BreakdownPanel } from '@/components/breakdown-panel';
 import { PrepPanel } from '@/components/prep/prep-panel';
+import { UpskillingPlanSection } from '@/components/prep/upskilling-plan';
 import { ScoreDial } from '@/components/score-dial';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -263,6 +264,7 @@ function AnalyzerContent() {
             <TabsList>
               <TabsTrigger value="optimize">Optimize CV</TabsTrigger>
               <TabsTrigger value="prep">Interview Prep</TabsTrigger>
+              <TabsTrigger value="upskilling">Upskilling Plan</TabsTrigger>
               <TabsTrigger value="history">Version History</TabsTrigger>
             </TabsList>
             <TabsContent value="optimize" className="mt-4">
@@ -283,9 +285,15 @@ function AnalyzerContent() {
             </TabsContent>
             <TabsContent value="prep" className="mt-4">
               {jdId && resultsCandidateId ? (
-                <PrepPanel
+                <PrepPanel jdId={jdId} candidateId={resultsCandidateId} />
+              ) : null}
+            </TabsContent>
+            <TabsContent value="upskilling" className="mt-4">
+              {jdId && resultsCandidateId ? (
+                <UpskillingPlanSection
                   jdId={jdId}
                   candidateId={resultsCandidateId}
+                  isViewer={!canMutate}
                   skills={{
                     matched: analysis.breakdown.skills.matched,
                     partial: analysis.breakdown.skills.partial,
