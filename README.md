@@ -52,6 +52,27 @@ This starts PostgreSQL, MinIO (plus a one-shot job that creates the `mfd-documen
 | MinIO console | http://localhost:9001 |
 | Default admin login | `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env` (defaults: `admin@mfd.local` / `ChangeMe123!` — change them) |
 
+## Team access on your office network (LAN)
+
+The app is multi-user (logins, roles, audit log) — teammates on the same network use it from the machine running Docker:
+
+1. **Find this machine's LAN IP** — `ipconfig` on Windows (the IPv4 address of your Wi-Fi adapter, e.g. `192.168.1.50`). Give the machine a fixed address (router DHCP reservation) so the URL doesn't change after reboots.
+2. **Point the web build at that IP** in `.env` (browsers on other machines can't use `localhost`):
+   ```
+   NEXT_PUBLIC_API_URL=http://192.168.1.50:4000/api/v1
+   API_CORS_ORIGIN=http://localhost:3000,http://192.168.1.50:3000
+   WEB_PUBLIC_URL=http://192.168.1.50:3000
+   ```
+3. **Rebuild and restart** (the web image inlines `NEXT_PUBLIC_API_URL` at build time):
+   ```bash
+   docker compose up -d --build web api
+   ```
+4. **Allow the ports through the firewall** (Windows: usually only needed if the network is marked Public): allow inbound TCP **3000** and **4000**, or approve the Docker Desktop prompt.
+5. **Create accounts for the team** — log in as admin → Settings → Users → add each recruiter with the `RECRUITER` role (use `VIEWER` for read-only access). Don't share the admin login.
+6. Teammates open `http://192.168.1.50:3000` and sign in.
+
+Postgres and MinIO are deliberately bound to `127.0.0.1` in docker-compose so only the app ports (3000/4000) are reachable from the network. Note the app serves plain HTTP — fine on a trusted office LAN, but put it behind a reverse proxy with TLS before exposing it any wider, and move to a small always-on server (or cloud VM) when "the laptop is off" becomes a problem.
+
 ## Local development
 
 ```bash

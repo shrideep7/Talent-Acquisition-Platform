@@ -15,7 +15,9 @@ services:
       POSTGRES_PASSWORD: mfd_dev_password
       POSTGRES_DB: mfd_tat
     ports:
-      - "5432:5432"
+      # Bound to localhost — with teammates reaching the app over the LAN,
+      # the database (dev-default credentials) must not be network-exposed.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -31,8 +33,10 @@ services:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-mfd-minio}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-mfd-minio-secret}
     ports:
-      - "9000:9000" # S3 API
-      - "9001:9001" # web console
+      # Localhost-only for the same reason as postgres — the browser never
+      # talks to MinIO directly (all file traffic streams through the API).
+      - "127.0.0.1:9000:9000" # S3 API
+      - "127.0.0.1:9001:9001" # web console
     volumes:
       - minio-data:/data
     healthcheck:
