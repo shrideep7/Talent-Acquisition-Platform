@@ -79,6 +79,73 @@ export class SkillsService {
     return this.toDto(updated);
   }
 
+  /**
+   * Push missing JD skills into the verification workflow as PROPOSED rows.
+   * This is the honest path from "the analysis says these skills are absent"
+   * to "the CV may include them": the recruiter asks about each skill in the
+   * screening interview, marks the ones the candidate actually has VERIFIED
+   * (with evidence), and only those enter regenerated CVs.
+   */
+  async proposeMissing(
+    input: { candidateId: string; jdId: string; skills: string[] },
+    user: AuthUser,
+  ): Promise<{ created: VerifiedSkillDto[]; skippedExisting: string[] }> {
+    const candidate = await this.prisma.candidate.findFirst({
+      where: { id: input.candidateId, deletedAt: null },
+    });
+    if (!candidate) throw new NotFoundException('Candidate not found');
+    const jd = await this.prisma.jd.findFirst({ where: { id: input.jdId, deletedAt: null } });
+    if (!jd) throw new NotFoundException('JD not found');
+
+    const wanted = [...new Set(input.skills.map((s) => s.trim()).filter(Boolean))];
+    if (wanted.length === 0) throw new BadRequestException('No skills provided');
+
+    const existing = await this.prisma.verifiedSkill.findMany({
+      where: { candidateId: input.candidateId, OR: [{ jdId: input.jdId }, { jdId: null }] },
+      select: { skill: true },
+    });
+    const existingSet = new Set(existing.map((r) => r.skill.toLowerCase()));
+
+    const created: VerifiedSkillDto[] = [];
+    const skippedExisting: string[] = [];
+    for (const skill of wanted) {
+      if (existingSet.has(skill.toLowerCase())) {
+        skippedExisting.push(skill);
+        continue;
+      }
+      const row = await this.prisma.verifiedSkill.create({
+        data: {
+          candidateId: input.candidateId,
+          jdId: input.jdId,
+          skill,
+          tier: 'UNVERIFIED_POSSIBLE',
+          status: 'PROPOSED',
+          evidence:
+            'Listed as missing in the match analysis — ask the candidate whether they have it ' +
+            '(many CVs omit real skills). VERIFY with evidence only if genuinely held; never add unverified.',
+        },
+      });
+      created.push(this.toDto(row));
+    }
+
+    if (created.length > 0) {
+      await this.audit.log({
+        userId: user.id,
+        action: 'SKILL_PROPOSED',
+        entityType: 'verified_skill',
+        entityId: input.candidateId,
+        detail: {
+          candidateId: input.candidateId,
+          jdId: input.jdId,
+          skills: created.map((c) => c.skill),
+          source: 'missing_from_analysis',
+        },
+      });
+    }
+
+    return { created, skippedExisting };
+  }
+
   /** Recruiter directly records a skill verified in the genuineness interview. */
   async create(input: CreateVerifiedSkillInput, user: AuthUser): Promise<VerifiedSkillDto> {
     const evidence = input.evidence.trim();

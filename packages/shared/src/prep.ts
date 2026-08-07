@@ -106,6 +106,57 @@ export const InterviewPrepSchema = z.object({
 export type InterviewPrep = z.infer<typeof InterviewPrepSchema>;
 
 /**
+ * Upskilling plan for skills the candidate genuinely LACKS: an honest,
+ * send-to-candidate learning path so learnable gaps close before the
+ * interview. It never coaches claiming experience — the CV only ever gains
+ * skills through the verification workflow.
+ */
+export const UpskillingItemSchema = z.object({
+  skill: z.string(),
+  priority: z
+    .enum(['critical', 'important', 'nice_to_have'])
+    .describe('How much this gap threatens selection for THIS JD'),
+  whyItMatters: z.string().describe('What the JD/role needs it for, in one sentence'),
+  learnability: z
+    .enum(['days', 'weeks', 'months'])
+    .describe("Honest effort estimate to interview-ready basics, given this candidate's background"),
+  leverageExisting: z
+    .string()
+    .nullable()
+    .describe('What the candidate already knows that transfers, e.g. "AWS Glue experience maps directly onto Azure Data Factory concepts"'),
+  learningPath: z
+    .array(z.string())
+    .describe('2-4 ordered, concrete steps: official docs/quickstarts, a specific free course, what to build'),
+  handsOnExercise: z
+    .string()
+    .describe('One small practical build task that produces demonstrable experience'),
+  interviewQuestions: z
+    .array(
+      z.object({
+        question: z.string().describe('A question an interviewer will likely ask on this skill'),
+        guidance: z
+          .string()
+          .describe('How to answer HONESTLY after doing the learning path — including the "I have been actively learning this, here is what I built" framing. Never coach claiming prior professional experience.'),
+      }),
+    )
+    .describe('2-3 questions to practice'),
+});
+export type UpskillingItem = z.infer<typeof UpskillingItemSchema>;
+
+export const UpskillingPlanSchema = z.object({
+  summary: z
+    .string()
+    .describe('2-3 sentences for the recruiter: how big the gap really is, what is realistically closeable before an interview, and what is not'),
+  items: z
+    .array(UpskillingItemSchema)
+    .describe('Up to ~10 items, highest priority first; group closely-related skills into one item'),
+  candidateMessage: z
+    .string()
+    .describe('Ready-to-send WhatsApp/email message to the candidate: warm, specific, lists the priority skills and first steps. Frames everything as learning — never as claiming experience.'),
+});
+export type UpskillingPlan = z.infer<typeof UpskillingPlanSchema>;
+
+/**
  * Verification checklist generated for Tier-3 (UNVERIFIED_POSSIBLE) skills:
  * asked during the genuineness interview; if the candidate demonstrates the
  * skill the recruiter records evidence and marks it VERIFIED, which allows it

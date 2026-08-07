@@ -1,10 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import type { MatchBreakdown } from '@mfd/shared';
-import { CheckCircle2, ChevronDown, Quote, XCircle } from 'lucide-react';
+import Link from 'next/link';
+import { useMutation } from '@tanstack/react-query';
+import type { MatchBreakdown, VerifiedSkillDto } from '@mfd/shared';
+import { CheckCircle2, ChevronDown, ListChecks, Loader2, Quote, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
   Table,
@@ -14,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { api } from '@/lib/api';
 import { cn, scoreBgColor, scoreColor } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -123,9 +128,82 @@ function Section({
 export interface BreakdownPanelProps {
   breakdown: MatchBreakdown;
   className?: string;
+  /**
+   * When set (and the viewer can mutate), missing skills get a
+   * "Check with candidate" action that queues them on the verification
+   * board — the honest path for a missing skill to enter a regenerated CV.
+   */
+  verify?: { candidateId: string; jdId: string };
 }
 
-export function BreakdownPanel({ breakdown, className }: BreakdownPanelProps) {
+/** Queues the missing skills as PROPOSED verification items. */
+function VerifyMissingAction({
+  missing,
+  candidateId,
+  jdId,
+}: {
+  missing: string[];
+  candidateId: string;
+  jdId: string;
+}) {
+  const [done, setDone] = React.useState(false);
+
+  const propose = useMutation({
+    mutationFn: () =>
+      api.post<{ created: VerifiedSkillDto[]; skippedExisting: string[] }>(
+        '/skills/propose-missing',
+        { candidateId, jdId, skills: missing },
+      ),
+    onSuccess: (result) => {
+      setDone(true);
+      toast.success(
+        result.created.length > 0
+          ? `${result.created.length} skill${result.created.length === 1 ? '' : 's'} queued for verification`
+          : 'All of these are already on the verification board',
+        {
+          description:
+            'Ask about them in the screening call; mark the ones the candidate genuinely has as VERIFIED (with evidence) on the candidate page, then regenerate the CV.',
+        },
+      );
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  if (missing.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
+      <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+        Many CVs omit real skills. Queue the missing ones to check in the screening call — skills
+        the candidate genuinely has get VERIFIED (with evidence) and enter the regenerated CV.
+      </p>
+      {done ? (
+        <Button asChild size="sm" variant="outline">
+          <Link href={`/candidates/${candidateId}`}>
+            <ListChecks className="h-3.5 w-3.5" />
+            Open verification board
+          </Link>
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={propose.isPending}
+          onClick={() => propose.mutate()}
+        >
+          {propose.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <ListChecks className="h-3.5 w-3.5" />
+          )}
+          Check {missing.length} missing with candidate
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function BreakdownPanel({ breakdown, className, verify }: BreakdownPanelProps) {
   const { weights, skills, experience, keywords, education, atsHealth } = breakdown;
 
   const weightEntries: Array<[string, number]> = [
@@ -163,6 +241,13 @@ export function BreakdownPanel({ breakdown, className }: BreakdownPanelProps) {
           <ChipGroup title="Partial" items={skills.partial} tone="amber" />
           <ChipGroup title="Missing" items={skills.missing} tone="red" />
         </div>
+        {verify && (
+          <VerifyMissingAction
+            missing={skills.missing}
+            candidateId={verify.candidateId}
+            jdId={verify.jdId}
+          />
+        )}
         {skills.details.length > 0 && (
           <Table>
             <TableHeader>

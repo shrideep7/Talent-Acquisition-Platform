@@ -240,7 +240,14 @@ function AnalyzerContent() {
               <ScoreDial score={analysis.totalScore} size={180} label="Overall match score" />
             </div>
             <div className="min-w-0 flex-1">
-              <BreakdownPanel breakdown={analysis.breakdown} />
+              <BreakdownPanel
+                breakdown={analysis.breakdown}
+                verify={
+                  canMutate
+                    ? { candidateId: analysis.candidateId, jdId: analysis.jdId }
+                    : undefined
+                }
+              />
             </div>
           </div>
 

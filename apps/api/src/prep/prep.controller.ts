@@ -38,9 +38,19 @@ export class PrepController {
   @Roles('ADMIN', 'RECRUITER')
   @ApiOperation({
     summary:
-      'Generate (without persisting) a genuineness-interview checklist for the UNVERIFIED_POSSIBLE skills of the latest analysis',
+      'Generate (without persisting) a genuineness-interview checklist for the UNVERIFIED_POSSIBLE skills of the latest analysis plus PROPOSED verification-board items',
   })
   verificationChecklist(@Body() dto: GeneratePrepDto) {
     return this.prepService.verificationChecklist(dto.jdId, dto.candidateId);
+  }
+
+  @Post('upskilling-plan')
+  @Roles('ADMIN', 'RECRUITER')
+  @ApiOperation({
+    summary:
+      'Generate an honest, send-to-candidate learning plan for the skills the latest analysis marks missing — learning paths, hands-on exercises, and interview practice questions',
+  })
+  upskillingPlan(@Body() dto: GeneratePrepDto) {
+    return this.prepService.upskillingPlan(dto.jdId, dto.candidateId);
   }
 }

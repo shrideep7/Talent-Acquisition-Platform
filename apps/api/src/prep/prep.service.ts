@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import type { InterviewPrep as InterviewPrepRow } from '@prisma/client';
-import { InterviewPrepSchema, SkillVerificationChecklistSchema } from '@mfd/shared';
+import {
+  InterviewPrepSchema,
+  SkillVerificationChecklistSchema,
+  UpskillingPlanSchema,
+} from '@mfd/shared';
 import type {
   InterviewPrep,
   InterviewPrepDto,
@@ -8,6 +12,7 @@ import type {
   ParsedCv,
   ParsedJd,
   SkillVerificationChecklist,
+  UpskillingPlan,
 } from '@mfd/shared';
 import { LlmService } from '../ai/llm.service';
 import { AuditService } from '../common/audit.service';
@@ -75,7 +80,9 @@ export class PrepService {
 
   /**
    * Verification checklist for the genuineness interview — covers the
-   * UNVERIFIED_POSSIBLE skills from the latest analysis. Not persisted.
+   * UNVERIFIED_POSSIBLE skills from the latest analysis plus any PROPOSED
+   * rows on the verification board (e.g. missing skills the recruiter queued
+   * to check with the candidate). Not persisted.
    */
   async verificationChecklist(
     jdId: string,
@@ -87,6 +94,27 @@ export class PrepService {
       .filter((d) => d.tier === 'UNVERIFIED_POSSIBLE')
       .map((d) => ({ skill: d.jdSkill, importance: d.importance, rationale: d.rationale }));
 
+    const proposedRows = await this.prisma.verifiedSkill.findMany({
+      where: {
+        candidateId,
+        OR: [{ jdId }, { jdId: null }],
+        status: 'PROPOSED',
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    const seen = new Set(unverifiedPossibleSkills.map((s) => s.skill.toLowerCase()));
+    for (const row of proposedRows) {
+      if (seen.has(row.skill.toLowerCase())) continue;
+      seen.add(row.skill.toLowerCase());
+      unverifiedPossibleSkills.push({
+        skill: row.skill,
+        importance: 'must_have',
+        rationale:
+          row.evidence ??
+          'Queued on the verification board — confirm whether the candidate actually has it.',
+      });
+    }
+
     if (unverifiedPossibleSkills.length === 0) return { items: [] };
 
     const ai = await this.llm.structured({
@@ -95,6 +123,40 @@ export class PrepService {
       schemaVersion: 'v1',
       candidateId,
       userContent: JSON.stringify({ jd: parsedJd, cv: parsedCv, unverifiedPossibleSkills }),
+    });
+    return ai.data;
+  }
+
+  /**
+   * Upskilling plan for genuinely missing skills: an honest learning path the
+   * recruiter can send to the candidate. Not persisted — the LLM cache makes
+   * repeat calls instant. This never touches the CV; skills only enter
+   * generated CVs through the verification workflow.
+   */
+  async upskillingPlan(jdId: string, candidateId: string): Promise<UpskillingPlan> {
+    const { parsedJd, parsedCv, breakdown } = await this.loadContext(jdId, candidateId);
+
+    const missingSkills = breakdown.skills.details
+      .filter((d) => d.tier === 'ABSENT')
+      .map((d) => ({ skill: d.jdSkill, importance: d.importance }));
+    const possiblyUnverified = breakdown.skills.details
+      .filter((d) => d.tier === 'UNVERIFIED_POSSIBLE')
+      .map((d) => ({ skill: d.jdSkill, importance: d.importance }));
+
+    if (missingSkills.length === 0 && possiblyUnverified.length === 0) {
+      return {
+        summary: 'No missing skills in the latest analysis — the candidate covers the JD.',
+        items: [],
+        candidateMessage: '',
+      };
+    }
+
+    const ai = await this.llm.structured({
+      promptName: 'upskilling-plan',
+      schema: UpskillingPlanSchema,
+      schemaVersion: 'v1',
+      candidateId,
+      userContent: JSON.stringify({ jd: parsedJd, cv: parsedCv, missingSkills, possiblyUnverified }),
     });
     return ai.data;
   }

@@ -191,7 +191,10 @@ function BreakdownDialog({
             <Skeleton className="h-24 w-full" />
           </div>
         ) : (
-          <BreakdownPanel breakdown={analysis.breakdown} />
+          <BreakdownPanel
+            breakdown={analysis.breakdown}
+            verify={{ candidateId: analysis.candidateId, jdId: analysis.jdId }}
+          />
         )}
       </DialogContent>
     </Dialog>

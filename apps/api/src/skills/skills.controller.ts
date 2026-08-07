@@ -16,6 +16,17 @@ class UpdateSkillStatusDto {
   evidence?: string;
 }
 
+class ProposeMissingDto {
+  @IsUUID()
+  candidateId!: string;
+
+  @IsUUID()
+  jdId!: string;
+
+  @IsString({ each: true })
+  skills!: string[];
+}
+
 class CreateVerifiedSkillDto {
   @IsUUID()
   candidateId!: string;
@@ -62,5 +73,15 @@ export class SkillsController {
   })
   create(@Body() dto: CreateVerifiedSkillDto, @CurrentUser() user: AuthUser) {
     return this.skillsService.create(dto, user);
+  }
+
+  @Post('propose-missing')
+  @Roles('ADMIN', 'RECRUITER')
+  @ApiOperation({
+    summary:
+      'Queue missing JD skills as PROPOSED verification items — the recruiter checks each with the candidate; only VERIFIED skills (with evidence) enter regenerated CVs',
+  })
+  proposeMissing(@Body() dto: ProposeMissingDto, @CurrentUser() user: AuthUser) {
+    return this.skillsService.proposeMissing(dto, user);
   }
 }
