@@ -131,9 +131,11 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        # Baked into the client bundle at build time — must be reachable from
-        # the user's BROWSER, hence localhost rather than the service name.
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api/v1}
+        # Empty by default: the client derives the API address from whatever
+        # host the browser used (localhost, LAN IP, …), so no rebuild is needed
+        # when the machine's IP changes. Set NEXT_PUBLIC_API_URL only to pin a
+        # specific API origin — it is baked in at build time.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
     ports:
       - "3000:3000"
     depends_on:

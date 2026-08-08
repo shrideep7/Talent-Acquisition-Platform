@@ -30,7 +30,11 @@ RUN pnpm install --frozen-lockfile --filter "@mfd/web..."
 FROM deps AS build
 WORKDIR /repo
 
-ARG NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
+# Left empty on purpose: the client derives the API address from the browser's
+# own hostname at runtime (see apps/web/src/lib/api.ts), so the image works on
+# localhost and over the LAN without a rebuild. Set it only to pin a specific
+# API origin (different host, reverse proxy, custom domain).
+ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 

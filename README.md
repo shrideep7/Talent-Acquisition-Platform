@@ -56,17 +56,9 @@ This starts PostgreSQL, MinIO (plus a one-shot job that creates the `mfd-documen
 
 The app is multi-user (logins, roles, audit log) — teammates on the same network use it from the machine running Docker:
 
-1. **Find this machine's LAN IP** — `ipconfig` on Windows (the IPv4 address of your Wi-Fi adapter, e.g. `192.168.1.50`). Give the machine a fixed address (router DHCP reservation) so the URL doesn't change after reboots.
-2. **Point the web build at that IP** in `.env` (browsers on other machines can't use `localhost`):
-   ```
-   NEXT_PUBLIC_API_URL=http://192.168.1.50:4000/api/v1
-   API_CORS_ORIGIN=http://localhost:3000,http://192.168.1.50:3000
-   WEB_PUBLIC_URL=http://192.168.1.50:3000
-   ```
-3. **Rebuild and restart** (the web image inlines `NEXT_PUBLIC_API_URL` at build time):
-   ```bash
-   docker compose up -d --build web api
-   ```
+1. **Leave `NEXT_PUBLIC_API_URL` and `API_CORS_ORIGIN` empty in `.env`.** The app calls the API on whatever address the browser used, and the API accepts localhost plus private-network origins — so the same running stack serves both `http://localhost:3000` (you) and `http://<LAN IP>:3000` (your team), and keeps working when the machine's IP changes. Pinning an IP in `NEXT_PUBLIC_API_URL` is what breaks the app the moment that IP changes.
+2. **Find this machine's LAN IP** — `ipconfig` on Windows (the IPv4 address of your Wi-Fi adapter, e.g. `192.168.1.50`). A router DHCP reservation keeps the URL stable across reboots.
+3. **Start the stack**: `docker compose up -d --build`
 4. **Allow the ports through the firewall** (Windows: usually only needed if the network is marked Public): allow inbound TCP **3000** and **4000**, or approve the Docker Desktop prompt.
 5. **Create accounts for the team** — log in as admin → Settings → Users → add each recruiter with the `RECRUITER` role (use `VIEWER` for read-only access). Don't share the admin login.
 6. Teammates open `http://192.168.1.50:3000` and sign in.
@@ -103,7 +95,7 @@ All configuration lives in `.env` (see `.env.example`). Docker Compose reads it 
 | --- | --- | --- |
 | `NODE_ENV` | `development` | Runtime mode |
 | `API_PORT` | `4000` | API listen port |
-| `API_CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origin(s), comma-separated |
+| `API_CORS_ORIGIN` | _(empty)_ | Allowed browser origins, comma-separated (`*` allows all). Empty = localhost and private-network addresses on any port |
 | `DATABASE_URL` | localhost Postgres | PostgreSQL connection string |
 | `JWT_SECRET` | change-me placeholder | Access-token signing secret — set a long random value |
 | `JWT_EXPIRES_IN` | `12h` | Access token lifetime |
@@ -131,7 +123,8 @@ All configuration lives in `.env` (see `.env.example`). Docker Compose reads it 
 | `SCORE_WEIGHT_KEYWORDS` | `20` | Scoring weight: keywords |
 | `SCORE_WEIGHT_EDUCATION` | `10` | Scoring weight: education |
 | `SCORE_WEIGHT_ATS` | `10` | Scoring weight: ATS readiness |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:4000/api/v1` | API base URL baked into the web build (must be browser-reachable) |
+| `NEXT_PUBLIC_API_URL` | _(empty)_ | Pins the API base URL into the web build. Empty (recommended) = derived at runtime from the address the browser used, so LAN IP changes need no rebuild |
+| `NEXT_PUBLIC_API_PORT` | `4000` | Port used when deriving the API URL at runtime |
 
 Scoring weights must sum to 100. Defaults can be overridden per deployment via env, and admins can adjust them at runtime through app settings.
 

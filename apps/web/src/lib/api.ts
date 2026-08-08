@@ -2,7 +2,32 @@
 
 import type { AuthResponseDto, UserDto } from '@mfd/shared';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+/**
+ * API base URL.
+ *
+ * By default this is derived at RUNTIME from the address the browser used to
+ * open the app: visiting http://localhost:3000 calls http://localhost:4000,
+ * and a teammate on http://10.0.0.5:3000 calls http://10.0.0.5:4000. That
+ * keeps the app working when the host machine's LAN IP changes (office Wi-Fi
+ * vs phone hotspot) without rebuilding the web image.
+ *
+ * Set NEXT_PUBLIC_API_URL to pin an explicit address instead (e.g. when the
+ * API lives on a different host or behind a proxy); it always wins.
+ * NEXT_PUBLIC_API_PORT overrides the derived port (default 4000).
+ */
+function resolveApiUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (configured) return configured.replace(/\/$/, '');
+
+  if (typeof window !== 'undefined') {
+    const port = process.env.NEXT_PUBLIC_API_PORT?.trim() || '4000';
+    return `${window.location.protocol}//${window.location.hostname}:${port}/api/v1`;
+  }
+  // Server-side render / build time — never used for real requests.
+  return 'http://localhost:4000/api/v1';
+}
+
+const API_URL = resolveApiUrl();
 
 const TOKEN_KEY = 'mfd_token';
 const USER_KEY = 'mfd_user';
