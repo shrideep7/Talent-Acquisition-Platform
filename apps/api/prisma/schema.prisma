@@ -88,6 +88,16 @@ enum PrescreenChannel {
   EMAIL
 }
 
+enum VendorStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum JdShareStatus {
+  SENT
+  FAILED
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -105,6 +115,7 @@ model User {
   auditLogs      AuditLog[]
   verifiedSkills VerifiedSkill[] @relation("VerifiedBy")
   screeningConversations ScreeningConversation[]
+  vendors        Vendor[]
 
   @@map("users")
 }
@@ -131,6 +142,7 @@ model Jd {
   sourcingJobs   SourcingJob[]
   verifiedSkills VerifiedSkill[]
   screeningConversations ScreeningConversation[]
+  shares         JdShare[]
 
   @@map("jds")
 }
@@ -299,6 +311,56 @@ model PipelineEntry {
 
   @@unique([jdId, candidateId])
   @@map("pipeline_entries")
+}
+
+/// A recruitment vendor/agency that supplies CVs against shared JDs.
+model Vendor {
+  id           String       @id @default(uuid())
+  /// Agency/company name
+  companyName  String
+  /// Primary contact person
+  contactName  String
+  /// AES-256-GCM encrypted contact email
+  email        String
+  /// sha256(lowercased email) — dedupe without decryption
+  emailHash    String       @unique
+  /// AES-256-GCM encrypted phone
+  phone        String?
+  status       VendorStatus @default(ACTIVE)
+  /// Focus areas used to target a JD blast, e.g. ["Data Engineering", "Cloud"]
+  specializations String[]  @default([])
+  notes        String?
+  createdById  String
+  createdBy    User         @relation(fields: [createdById], references: [id])
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+
+  jdShares JdShare[]
+
+  @@index([status])
+  @@map("vendors")
+}
+
+/// One JD-share email to one vendor — the delivery record for the blast.
+model JdShare {
+  id        String        @id @default(uuid())
+  jdId      String
+  jd        Jd            @relation(fields: [jdId], references: [id], onDelete: Cascade)
+  vendorId  String
+  vendor    Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  status    JdShareStatus @default(SENT)
+  /// Subject line as sent — the body is templated, so this is enough to audit
+  subject   String
+  /// Whether the original JD document was attached
+  attached  Boolean       @default(false)
+  error     String?
+  sentById  String
+  sentAt    DateTime      @default(now())
+
+  @@index([jdId])
+  @@index([vendorId])
+  @@map("jd_shares")
 }
 
 model ScreeningConversation {

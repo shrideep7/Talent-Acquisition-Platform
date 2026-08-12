@@ -17,6 +17,12 @@ export type CandidateSource = (typeof CANDIDATE_SOURCES)[number];
 export const CONSENT_STATUSES = ['PENDING', 'GRANTED', 'REVOKED'] as const;
 export type ConsentStatus = (typeof CONSENT_STATUSES)[number];
 
+export const VENDOR_STATUSES = ['ACTIVE', 'INACTIVE'] as const;
+export type VendorStatus = (typeof VENDOR_STATUSES)[number];
+
+export const JD_SHARE_STATUSES = ['SENT', 'FAILED'] as const;
+export type JdShareStatus = (typeof JD_SHARE_STATUSES)[number];
+
 export const CV_VERSION_STATUSES = ['DRAFT', 'EDITED', 'EXPORTED'] as const;
 export type CvVersionStatus = (typeof CV_VERSION_STATUSES)[number];
 
@@ -66,6 +72,10 @@ export const AUDIT_ACTIONS = [
   'USER_UPDATED',
   'JD_UPLOADED',
   'JD_DELETED',
+  'JD_SHARED_WITH_VENDORS',
+  'VENDOR_CREATED',
+  'VENDOR_UPDATED',
+  'VENDOR_DELETED',
   'CANDIDATE_CREATED',
   'CANDIDATE_UPDATED',
   'CANDIDATE_DELETED',

@@ -4,12 +4,22 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, FileSearch, Loader2, RefreshCw, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  FileSearch,
+  Loader2,
+  Paperclip,
+  RefreshCw,
+  Send,
+  Trash2,
+} from 'lucide-react';
 import { toast } from 'sonner';
-import type { JdDto } from '@mfd/shared';
+import type { JdDto, JdShareDto } from '@mfd/shared';
 
 import { DeleteJdDialog } from '@/components/jds/delete-jd-dialog';
 import { experienceRange } from '@/components/jds/jd-utils';
+import { ShareJdDialog } from '@/components/vendors/share-jd-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -44,6 +54,7 @@ export default function JdDetailPage() {
   const isViewer = user?.role === 'VIEWER';
 
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [shareOpen, setShareOpen] = React.useState(false);
 
   const jdQuery = useQuery({
     queryKey: ['jd', id],
@@ -51,6 +62,13 @@ export default function JdDetailPage() {
     enabled: Boolean(id),
   });
   const jd = jdQuery.data;
+
+  const sharesQuery = useQuery({
+    queryKey: ['jd-shares', id],
+    queryFn: () => api.get<JdShareDto[]>(`/vendors/shares?jdId=${id}`),
+    enabled: Boolean(id),
+  });
+  const shares = sharesQuery.data ?? [];
 
   const reparse = useMutation({
     mutationFn: () => api.post<JdDto>(`/jds/${id}/reparse`),
@@ -131,6 +149,10 @@ export default function JdDetailPage() {
             </Button>
             {!isViewer && (
               <>
+                <Button variant="outline" onClick={() => setShareOpen(true)}>
+                  <Send className="mr-2 h-4 w-4" />
+                  Share with vendors
+                </Button>
                 <Button
                   variant="outline"
                   onClick={() => reparse.mutate()}
@@ -297,6 +319,59 @@ export default function JdDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Vendor share history */}
+      <Card>
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-base">Shared with vendors</CardTitle>
+          <CardDescription>
+            {shares.length === 0
+              ? 'This JD has not been sent to any vendor yet.'
+              : `Sent to ${new Set(shares.filter((s) => s.status === 'SENT').map((s) => s.vendorId)).size} vendor(s)`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {shares.length === 0 ? (
+            !isViewer && (
+              <Button variant="outline" onClick={() => setShareOpen(true)}>
+                <Send className="mr-2 h-4 w-4" />
+                Share with vendors
+              </Button>
+            )
+          ) : (
+            <ul className="divide-y">
+              {shares.map((share) => (
+                <li key={share.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {share.vendorCompanyName ?? 'Vendor'}
+                  </span>
+                  {share.attached && (
+                    <Badge variant="outline" className="gap-1 font-normal">
+                      <Paperclip className="h-3 w-3" /> attached
+                    </Badge>
+                  )}
+                  <Badge
+                    variant="outline"
+                    className={
+                      share.status === 'SENT'
+                        ? 'border-transparent bg-emerald-100 font-normal text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-200'
+                        : 'border-transparent bg-red-100 font-normal text-red-900 dark:bg-red-900/40 dark:text-red-200'
+                    }
+                    title={share.error ?? undefined}
+                  >
+                    {share.status === 'SENT' ? 'Sent' : 'Failed'}
+                  </Badge>
+                  <span className="whitespace-nowrap text-xs text-muted-foreground">
+                    {formatDate(share.sentAt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <ShareJdDialog jd={jd} open={shareOpen} onOpenChange={setShareOpen} />
 
       <DeleteJdDialog
         jdId={jd.id}

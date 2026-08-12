@@ -10,6 +10,7 @@ Core capabilities:
 - **Naukri Search** — extract ready-to-paste Naukri Resdex search filters from a JD (boolean keyword string, experience range, candidate locations, salary band in lakhs, plus IT skills, designations, notice period and search tips), each with one-click copy.
 - **WhatsApp pre-screening** — a bot runs the pre-call conversation on WhatsApp: consent, interest check, logistics (notice period, current/expected CTC, location, offers in hand), current-role claim confirmation, and booking the human screening call. Questions are deterministic templates; the LLM only interprets replies (with a no-AI heuristic fallback). Produces a pre-call brief with flags, auto-fills the candidate record, and advances the pipeline. Ships with a **simulated mode** so the flow can be tested in-app before Meta business verification.
 - **Email pre-screening** — the same question flow over email (AWS SES SMTP, e.g. from `hiring@metafordata.com`): one concise email with a secure answer-form link plus the questions inline. Form submissions become the pre-call brief automatically; candidates who reply by email instead are handled via "Record email reply", which parses the reply against the questions. Runs in simulated mode until SES SMTP credentials are configured.
+- **Vendors** — a directory of the recruitment agencies that supply CVs, and one-click JD distribution: each active vendor gets a personalized requirement email (never a shared CC/BCC) with the parsed spec, optional JD attachment, and instructions for replying with profiles. The end client is masked by default, repeat blasts skip vendors who already received the JD, and every send is recorded per vendor.
 - **Bulk sourcing** — upload a batch of CVs against a JD; each file is parsed (with OCR fallback for scanned PDFs), scored, and fed into the pipeline.
 - **Pipeline tracking** — per-JD candidate pipeline from `SOURCED` through `SENT_TO_CLIENT`.
 
@@ -145,6 +146,8 @@ To send real email:
    - **DMARC** — publish a TXT record `_dmarc.metafordata.com` with value `v=DMARC1; p=none; rua=mailto:careers@metafordata.com`.
    - Verify the result: send yourself a pre-screen, open it in Gmail → ⋮ → *Show original* — SPF, DKIM and DMARC must all say **PASS** with `metafordata.com`.
    - Warm up: send low volumes at first, and ask early recipients to hit *Not spam* / reply — engagement trains the filters.
+
+The same SMTP settings power the **Vendors** JD blast — no extra configuration. Until SES credentials are set it runs in simulated mode there too, so the whole flow (recipients, email content, share history) can be rehearsed without sending anything.
 
 Candidate answers flow back three ways: the **built-in form** (structured, completes the conversation automatically), a **Google Form** (open the conversation, click *Record response…*, paste the response row from the linked Sheet), or a plain **email reply** (paste it the same way). Pasted text is interpreted by the LLM against the question list; nothing is auto-sent back to the candidate.
 

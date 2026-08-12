@@ -7,10 +7,12 @@ import type {
   CandidateSource,
   ConsentStatus,
   CvVersionStatus,
+  JdShareStatus,
   PipelineStage,
   SkillMatchTier,
   SourcingJobStatus,
   UserRole,
+  VendorStatus,
   VerifiedSkillStatus,
 } from './constants';
 
@@ -186,6 +188,44 @@ export interface NaukriSearchDto {
   jdId: string | null;
   jdTitle: string | null;
   cached: boolean;
+}
+
+export interface VendorDto {
+  id: string;
+  companyName: string;
+  contactName: string;
+  email: string | null;
+  phone: string | null;
+  status: VendorStatus;
+  specializations: string[];
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Number of JD shares sent to this vendor. */
+  sharesCount?: number;
+  /** When this vendor last received a JD. */
+  lastSharedAt?: string | null;
+}
+
+export interface JdShareDto {
+  id: string;
+  jdId: string;
+  vendorId: string;
+  vendorCompanyName?: string;
+  vendorContactName?: string;
+  status: JdShareStatus;
+  subject: string;
+  attached: boolean;
+  error: string | null;
+  sentAt: string;
+}
+
+/** Result of a JD blast to several vendors. */
+export interface ShareJdResultDto {
+  sent: JdShareDto[];
+  failed: JdShareDto[];
+  /** Vendors skipped because they already received this JD (resend not requested). */
+  skippedAlreadyShared: string[];
 }
 
 export interface AuditLogDto {

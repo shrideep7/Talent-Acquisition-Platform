@@ -9,5 +9,7 @@ import { PrescreenFormController } from './prescreen-form.controller';
   imports: [WhatsappModule],
   controllers: [EmailPrescreenController, PrescreenFormController],
   providers: [EmailPrescreenService, MailService],
+  // The vendors module sends JD blasts through the same SMTP transport.
+  exports: [MailService],
 })
 export class EmailModule {}

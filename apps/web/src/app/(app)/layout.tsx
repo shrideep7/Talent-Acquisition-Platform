@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Briefcase,
+  Building2,
   ChevronDown,
   FileSearch,
   FolderUp,
@@ -47,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/pipeline', label: 'Pipeline', icon: KanbanSquare },
   { href: '/candidates', label: 'Candidates', icon: Users },
   { href: '/jds', label: 'Job Descriptions', icon: Briefcase },
+  { href: '/vendors', label: 'Vendors', icon: Building2 },
   { href: '/settings', label: 'Settings', icon: Settings, adminOnly: true },
   { href: '/audit', label: 'Audit Log', icon: ScrollText, adminOnly: true },
 ];

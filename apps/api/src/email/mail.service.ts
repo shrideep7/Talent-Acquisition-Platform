@@ -4,11 +4,18 @@ import { createTransport, type Transporter } from 'nodemailer';
 
 export type EmailMode = 'simulated' | 'smtp';
 
+export interface MailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 export interface OutgoingMail {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  attachments?: MailAttachment[];
 }
 
 export interface MailSendResult {
@@ -72,6 +79,7 @@ export class MailService {
         subject: mail.subject,
         text: mail.text,
         html: mail.html,
+        ...(mail.attachments?.length ? { attachments: mail.attachments } : {}),
         headers: {
           // Gmail/Outlook weigh a one-click unsubscribe path heavily when
           // scoring recruitment mail — without it, spam placement is likely.

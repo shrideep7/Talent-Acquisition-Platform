@@ -17,6 +17,7 @@ import { PrepModule } from './prep/prep.module';
 import { SettingsModule } from './settings/settings.module';
 import { SkillsModule } from './skills/skills.module';
 import { SourcingModule } from './sourcing/sourcing.module';
+import { VendorsModule } from './vendors/vendors.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
@@ -38,6 +39,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     SourcingModule,
     WhatsappModule,
     EmailModule,
+    VendorsModule,
     SettingsModule,
     AuditModule,
   ],
